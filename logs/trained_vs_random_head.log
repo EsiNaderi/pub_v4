@@ -1,0 +1,38 @@
+
+=== random_init_seed_20260506 ===
+  net params: 226026
+  computing train features (60000 samples) ...
+    done in 422.3s. mean=0.3869, std=0.3690, zero_rate=0.0274
+  computing test features ...
+    done in 71.8s.
+  training linear head for 200 epochs ...
+  ep   0  train=0.4157  test=0.4134  best_test=0.4134
+  ep  25  train=0.5399  test=0.5338  best_test=0.5419
+  ep  50  train=0.5443  test=0.5327  best_test=0.5582
+  ep  75  train=0.5513  test=0.5420  best_test=0.5582
+  ep 100  train=0.5525  test=0.5456  best_test=0.5609
+  ep 125  train=0.5656  test=0.5573  best_test=0.5623
+  ep 150  train=0.5577  test=0.5500  best_test=0.5623
+  ep 175  train=0.5690  test=0.5619  best_test=0.5669
+  ep 199  train=0.5480  test=0.5449  best_test=0.5669
+  BEST TEST: 0.5669
+
+=== bptt_trained_ckpt ===
+  net params: 226026
+  computing train features (60000 samples) ...
+    done in 406.6s. mean=0.6974, std=0.2877, zero_rate=0.0020
+  computing test features ...
+    done in 73.6s.
+  training linear head for 200 epochs ...
+  ep   0  train=0.5801  test=0.5683  best_test=0.5683
+  ep  25  train=0.6461  test=0.6352  best_test=0.6397
+  ep  50  train=0.6395  test=0.6299  best_test=0.6434
+  ep  75  train=0.6440  test=0.6324  best_test=0.6482
+  ep 100  train=0.6459  test=0.6366  best_test=0.6497
+  ep 125  train=0.6515  test=0.6419  best_test=0.6508
+  ep 150  train=0.6518  test=0.6438  best_test=0.6512
+  ep 175  train=0.6561  test=0.6473  best_test=0.6524
+  ep 199  train=0.6551  test=0.6462  best_test=0.6524
+  BEST TEST: 0.6524
+
+=== Done. CSV at: results/run_trained_vs_random_head.csv ===

@@ -1,0 +1,17 @@
+Loading SMNIST ...
+train torch.Size([5000, 784]), test torch.Size([1000, 784])
+[ep 00 t=   2.6s] train=0.0960 test=0.0850 best=0.0850 omega_mean=0.5959 alpha_mean=0.9747 theta_mean=1.000 usage_max=0.004
+  ep 00: epoch wall   15.3s, ~0.194s/step
+[ep 01 t=  18.2s] train=0.2532 test=0.2440 best=0.2440 omega_mean=0.5951 alpha_mean=0.9755 theta_mean=0.966 usage_max=0.174
+  ep 01: epoch wall   30.8s, ~0.195s/step
+[ep 02 t=  33.5s] train=0.2612 test=0.2490 best=0.2490 omega_mean=0.5944 alpha_mean=0.9755 theta_mean=0.932 usage_max=0.400
+  ep 02: epoch wall   46.1s, ~0.195s/step
+[ep 03 t=  49.3s] train=0.2374 test=0.2290 best=0.2490 omega_mean=0.5943 alpha_mean=0.9755 theta_mean=0.898 usage_max=0.425
+  ep 03: epoch wall   62.0s, ~0.196s/step
+[ep 04 t=  64.6s] train=0.2680 test=0.2520 best=0.2520 omega_mean=0.5942 alpha_mean=0.9755 theta_mean=0.858 usage_max=0.407
+  ep 04: epoch wall   77.3s, ~0.196s/step
+[ep 05 t=  80.3s] train=0.2710 test=0.2420 best=0.2520 omega_mean=0.5942 alpha_mean=0.9755 theta_mean=0.812 usage_max=0.378
+  ep 05: epoch wall   93.0s, ~0.196s/step
+[ep 06 t=  95.7s] train=0.2698 test=0.2400 best=0.2520 omega_mean=0.5941 alpha_mean=0.9755 theta_mean=0.766 usage_max=0.439
+
+Best test acc: 0.2520

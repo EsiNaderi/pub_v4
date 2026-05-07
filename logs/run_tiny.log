@@ -1,0 +1,9 @@
+device: cpu
+train: 1000, test: 500
+net params: {'total': 21704, 'layer_0': 2624, 'layer_1': 19080}
+[ep 0 step     0 t=   2.7s] loss=2.302 (ema 2.302) acc=0.125 (ema 0.125)
+[ep 0 step     3 t=  10.7s] loss=2.303 (ema 2.302) acc=0.062 (ema 0.118)
+[ep 0 step     6 t=  18.8s] loss=2.303 (ema 2.302) acc=0.062 (ema 0.116)
+[ep 0 step     9 t=  26.9s] loss=2.302 (ema 2.302) acc=0.125 (ema 0.113)
+[ep 0 step    12 t=  35.0s] loss=2.302 (ema 2.302) acc=0.062 (ema 0.104)
+[ep 0 step    15 t=  43.2s] loss=2.302 (ema 2.302) acc=0.031 (ema 0.095)

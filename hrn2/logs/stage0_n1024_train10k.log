@@ -1,0 +1,7 @@
+Loading SMNIST ...
+train torch.Size([10000, 784]), test torch.Size([2000, 784])
+[ep 00 t=  17.6s] train=0.1001 test=0.0875 best=0.0875 omega_mean=0.4962 alpha_mean=0.9744 theta_mean=1.000 usage_max=0.008
+  ep 00: epoch wall   87.2s, ~0.556s/step
+[ep 01 t= 106.5s] train=0.1133 test=0.1180 best=0.1180 omega_mean=0.5020 alpha_mean=0.9723 theta_mean=0.571 usage_max=0.045
+  ep 01: epoch wall  176.4s, ~0.562s/step
+[ep 02 t= 195.7s] train=0.1127 test=0.1170 best=0.1180 omega_mean=0.5033 alpha_mean=0.9719 theta_mean=0.141 usage_max=0.080

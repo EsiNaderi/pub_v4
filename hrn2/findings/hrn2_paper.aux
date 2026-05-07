@@ -1,0 +1,54 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{pubv3}
+\citation{pubv4_v1}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction and motivation}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Notation and assumptions}{2}{section.2}\protected@file@percent }
+\newlabel{sec:notation}{{2}{2}{Notation and assumptions}{section.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Per-neuron oscillator}{2}{section.3}\protected@file@percent }
+\newlabel{sec:single}{{3}{2}{Per-neuron oscillator}{section.3}{}}
+\newlabel{eq:osc}{{1}{2}{Per-neuron oscillator}{equation.1}{}}
+\newlabel{eq:osc-r}{{2}{2}{Per-neuron oscillator}{equation.2}{}}
+\newlabel{eq:osc-i}{{3}{2}{Per-neuron oscillator}{equation.3}{}}
+\newlabel{eq:tail-energy}{{6}{3}{Per-neuron oscillator}{equation.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Forward eligibility traces}{3}{section.4}\protected@file@percent }
+\newlabel{sec:elig}{{4}{3}{Forward eligibility traces}{section.4}{}}
+\newlabel{eq:elig-recur}{{8}{3}{Forward eligibility traces}{equation.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Tail-energy gradient via eligibility}{4}{subsection.4.1}\protected@file@percent }
+\newlabel{eq:dE-dtheta}{{14}{4}{Tail-energy gradient via eligibility}{equation.14}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Stage-level architecture}{4}{section.5}\protected@file@percent }
+\newlabel{eq:pool-logit}{{15}{4}{Stage-level architecture}{equation.15}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Per-neuron credit signal}{4}{subsection.5.1}\protected@file@percent }
+\newlabel{eq:dL-dE}{{18}{4}{Per-neuron credit signal}{equation.18}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Final per-parameter local rule}{4}{subsection.5.2}\protected@file@percent }
+\newlabel{eq:final-rule}{{19}{4}{Final per-parameter local rule}{equation.19}{}}
+\citation{decolle}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Multi-stage hierarchy}{5}{section.6}\protected@file@percent }
+\newlabel{sec:hier}{{6}{5}{Multi-stage hierarchy}{section.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}DECOLLE-style local supervision}{5}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Final ensemble}{5}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Frequency-band hierarchy and time-scale separation}{5}{section.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}Optimiser and schedule}{6}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9}Empirical results on Sequential MNIST}{6}{section.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1}Stage decomposition of the best run}{6}{subsection.9.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10}Architecture diagram}{6}{section.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11}Local-rule diagram}{6}{section.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12}Discussion}{6}{section.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Why the readout matters more than the substrate at stage 0.}{6}{section*.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces HRN-v2 3-stage architecture. Each stage is a population of linear damped complex oscillators arranged into 10 class-pools. Stage $\ell $ takes the per-timestep amplitude squared $E_{\ell -1, i}(t)$ of the previous stage as its multi-channel input through a sparse class-aligned fan-in $\mathcal  F_\ell $. Each stage has its own class-pool tail-energy readout and its own cross-entropy loss $L_\ell $. Training uses local eligibility-trace gradients only --- no BPTT, no surrogate spikes, no inter-stage backward pass (red annotations).}}{7}{figure.caption.2}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:arch}{{1}{7}{HRN-v2 3-stage architecture. Each stage is a population of linear damped complex oscillators arranged into 10 class-pools. Stage $\ell $ takes the per-timestep amplitude squared $E_{\ell -1, i}(t)$ of the previous stage as its multi-channel input through a sparse class-aligned fan-in $\mathcal F_\ell $. Each stage has its own class-pool tail-energy readout and its own cross-entropy loss $L_\ell $. Training uses local eligibility-trace gradients only --- no BPTT, no surrogate spikes, no inter-stage backward pass (red annotations)}{figure.caption.2}{}}
+\bibcite{pubv3}{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Local-rule structure for a single oscillator. The state $z(t)$ and eligibility $e^\theta (t)$ are co-evolved by the same recurrence (yellow); the tail-energy readout $\bar  E$ feeds into the class-pool credit $\delta $ (orange); the final update (red) is the product of two local quantities. No backward pass crosses neuron boundaries.}}{8}{figure.caption.3}\protected@file@percent }
+\newlabel{fig:rule}{{2}{8}{Local-rule structure for a single oscillator. The state $z(t)$ and eligibility $e^\theta (t)$ are co-evolved by the same recurrence (yellow); the tail-energy readout $\bar E$ feeds into the class-pool credit $\delta $ (orange); the final update (red) is the product of two local quantities. No backward pass crosses neuron boundaries}{figure.caption.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Why deeper stages do learn $\omega $.}{8}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The role of LR decay.}{8}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Comparison to non-bio baselines.}{8}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {13}Conclusion}{8}{section.13}\protected@file@percent }
+\bibcite{pubv4_v1}{2}
+\bibcite{decolle}{3}
+\bibcite{eprop}{4}
+\bibcite{lillicrap}{5}
+\gdef \@abspage@last{9}

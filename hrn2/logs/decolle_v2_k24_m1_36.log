@@ -1,0 +1,4 @@
+Loading SMNIST ...
+train torch.Size([10000, 784]), test torch.Size([2000, 784])
+M0=240, M1=360, K1_fanin=24
+[ep 00 t= 140.1s] tr a0=0.0928 a1=0.1451 ac=0.1317 | te a0=0.1325 a1=0.1855 ac=0.1745 | best=0.1745 | om0=0.603 om1=0.1499

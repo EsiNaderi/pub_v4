@@ -1,0 +1,17 @@
+Loading SMNIST ...
+train torch.Size([10000, 784]), test torch.Size([2000, 784]), P=800
+[ep 00 t=   9.8s] tr_loss=2.302 tr_acc=0.0992 te_loss=2.302 te_acc=0.1330 best=0.1330 om=0.5967 al=0.9744
+[ep 01 t=  64.1s] tr_loss=1.549 tr_acc=0.4647 te_loss=1.648 te_acc=0.4295 best=0.4295 om=0.5911 al=0.9769
+[ep 02 t= 119.3s] tr_loss=1.251 tr_acc=0.5547 te_loss=1.385 te_acc=0.4955 best=0.4955 om=0.5918 al=0.9779
+[ep 03 t= 174.5s] tr_loss=1.123 tr_acc=0.6103 te_loss=1.271 te_acc=0.5595 best=0.5595 om=0.5908 al=0.9782
+[ep 04 t= 229.2s] tr_loss=1.085 tr_acc=0.6325 te_loss=1.214 te_acc=0.5805 best=0.5805 om=0.5904 al=0.9785
+[ep 05 t= 283.8s] tr_loss=1.004 tr_acc=0.6715 te_loss=1.179 te_acc=0.6050 best=0.6050 om=0.5898 al=0.9787
+[ep 06 t= 338.5s] tr_loss=0.933 tr_acc=0.7039 te_loss=1.085 te_acc=0.6635 best=0.6635 om=0.5893 al=0.9788
+[ep 07 t= 393.1s] tr_loss=0.909 tr_acc=0.6987 te_loss=1.060 te_acc=0.6540 best=0.6635 om=0.5896 al=0.9789
+[ep 08 t= 447.5s] tr_loss=0.912 tr_acc=0.7055 te_loss=1.061 te_acc=0.6535 best=0.6635 om=0.5897 al=0.9789
+[ep 09 t= 498.4s] tr_loss=0.870 tr_acc=0.7223 te_loss=1.057 te_acc=0.6600 best=0.6635 om=0.5901 al=0.9789
+[ep 10 t= 549.4s] tr_loss=0.862 tr_acc=0.7225 te_loss=1.021 te_acc=0.6655 best=0.6655 om=0.5894 al=0.9789
+[ep 11 t= 600.7s] tr_loss=0.836 tr_acc=0.7265 te_loss=1.030 te_acc=0.6675 best=0.6675 om=0.5893 al=0.9790
+[ep 12 t= 651.1s] tr_loss=0.899 tr_acc=0.6911 te_loss=1.078 te_acc=0.6425 best=0.6675 om=0.5896 al=0.9790
+
+Best test acc: 0.6675

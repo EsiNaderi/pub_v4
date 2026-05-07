@@ -1,0 +1,13 @@
+loading SMNIST ...
+trainable params:
+  pool_bias: (10,) = 10
+  layers.2.omega: (240,) = 240
+  layers.2.eta: (240,) = 240
+  layers.2.D_re: (240, 256) = 61440
+  layers.2.D_im: (240, 256) = 61440
+  layers.2.W_re: (10, 24, 24) = 5760
+  layers.2.W_im: (10, 24, 24) = 5760
+  aux_head.weight: (10, 240) = 2400
+  aux_head.bias: (10,) = 10
+total trainable: 137300
+[ep 0 step     0 t=  13.6s] loss=2.367 (ema 2.367) acc=0.109 (ema 0.109)

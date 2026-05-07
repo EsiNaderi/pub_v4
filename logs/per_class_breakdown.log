@@ -1,0 +1,47 @@
+Training MLP h=512 on cached features (torch.Size([60000, 240])) ...
+  ep   0 test=0.6143 best=0.6143
+  ep  20 test=0.6471 best=0.6573
+  ep  40 test=0.6480 best=0.6633
+  ep  60 test=0.6624 best=0.6727
+  ep  80 test=0.6718 best=0.6727
+  ep 100 test=0.6684 best=0.6734
+
+=== Best test acc: 0.6734 ===
+
+Per-class accuracy:
+Class      N  Correct      Acc
+    0    980      649   0.6622
+    1   1135     1059   0.9330
+    2   1032      682   0.6609
+    3   1010      534   0.5287
+    4    982      729   0.7424
+    5    892      253   0.2836
+    6    958      783   0.8173
+    7   1028      684   0.6654
+    8    974      775   0.7957
+    9   1009      586   0.5808
+
+Confusion matrix (rows = true, cols = predicted):
+           0    1    2    3    4    5    6    7    8    9
+    0 |   649    0   60   58    1   24   97    0   91    0
+    1 |     2 1059    9    5   30    2    9    4   13    2
+    2 |    92    1  682  103    6   17  103    1   24    3
+    3 |   175   14   40  534    4  140   19   25   48   11
+    4 |     1   19   12    3  729    2    6   16    4  190
+    5 |   116    7   33  308   15  253   66   12   69   13
+    6 |    35    3   94    3    6   11  783    0   23    0
+    7 |     0   16    3    4   48    7    1  684    8  257
+    8 |   124    2   21    9    3   14   18    5  775    3
+    9 |     8    3    6   11   68   18    0  306    3  586
+
+Top confusions (off-diagonal):
+  308 times: true 5 -> pred 3
+  306 times: true 9 -> pred 7
+  257 times: true 7 -> pred 9
+  190 times: true 4 -> pred 9
+  175 times: true 3 -> pred 0
+  140 times: true 3 -> pred 5
+  124 times: true 8 -> pred 0
+  116 times: true 5 -> pred 0
+  103 times: true 2 -> pred 6
+  103 times: true 2 -> pred 3

@@ -1,0 +1,91 @@
+==========================================
+  pub_v4 OVERNIGHT TRAINING SUMMARY
+  Thu  7 May 2026 03:26:20 EDT
+==========================================
+
+## Training process status
+  (training process has finished or stopped)
+
+## Training log (last 30 lines)
+[ep 3 step  1060 t=11158.3s] loss=1.164 (ema 1.192) acc=0.562 (ema 0.565)
+[ep 3 step  1080 t=11365.6s] loss=0.826 (ema 1.160) acc=0.781 (ema 0.574)
+[ep 3 step  1100 t=11573.1s] loss=1.195 (ema 1.215) acc=0.469 (ema 0.544)
+[ep 3 step  1120 t=11780.8s] loss=1.088 (ema 1.238) acc=0.500 (ema 0.531)
+[ep 3 step  1140 t=11988.9s] loss=1.311 (ema 1.241) acc=0.594 (ema 0.547)
+[ep 3 step  1160 t=12198.2s] loss=1.379 (ema 1.184) acc=0.438 (ema 0.538)
+[ep 3 step  1180 t=12408.9s] loss=1.081 (ema 1.201) acc=0.594 (ema 0.551)
+[ep 3 step  1200 t=12620.4s] loss=1.314 (ema 1.262) acc=0.500 (ema 0.536)
+[ep 3 step  1220 t=12834.6s] loss=1.431 (ema 1.365) acc=0.438 (ema 0.476)
+[ep 3 step  1240 t=13049.3s] loss=1.214 (ema 1.338) acc=0.562 (ema 0.484)
+[ep 3 EVAL t=13174.9s] test_loss=1.376 test_acc=0.4725  rates=[0.1364, 0.3354, 0.5783]
+[ep 4 step  1260 t=13268.3s] loss=1.197 (ema 1.276) acc=0.438 (ema 0.503)
+[ep 4 step  1280 t=13475.8s] loss=1.375 (ema 1.270) acc=0.281 (ema 0.479)
+[ep 4 step  1300 t=13683.1s] loss=1.366 (ema 1.264) acc=0.562 (ema 0.504)
+[ep 4 step  1320 t=13889.7s] loss=1.345 (ema 1.264) acc=0.469 (ema 0.490)
+[ep 4 step  1340 t=14096.7s] loss=1.178 (ema 1.270) acc=0.406 (ema 0.521)
+[ep 4 step  1360 t=14303.7s] loss=1.400 (ema 1.272) acc=0.531 (ema 0.523)
+[ep 4 step  1380 t=14510.4s] loss=1.168 (ema 1.250) acc=0.406 (ema 0.522)
+[ep 4 step  1400 t=14717.6s] loss=1.313 (ema 1.227) acc=0.469 (ema 0.532)
+[ep 4 step  1420 t=14925.2s] loss=1.360 (ema 1.258) acc=0.469 (ema 0.510)
+[ep 4 step  1440 t=15135.2s] loss=1.075 (ema 1.234) acc=0.625 (ema 0.502)
+[ep 4 step  1460 t=15348.8s] loss=1.321 (ema 1.291) acc=0.375 (ema 0.492)
+[ep 4 step  1480 t=15560.0s] loss=1.375 (ema 1.273) acc=0.656 (ema 0.526)
+[ep 4 step  1500 t=15771.5s] loss=1.071 (ema 1.223) acc=0.625 (ema 0.536)
+[ep 4 step  1520 t=15980.2s] loss=1.165 (ema 1.240) acc=0.625 (ema 0.540)
+[ep 4 step  1540 t=16188.5s] loss=1.716 (ema 1.276) acc=0.344 (ema 0.516)
+[ep 4 step  1560 t=16397.6s] loss=1.148 (ema 1.210) acc=0.531 (ema 0.514)
+[ep 4 EVAL t=16448.1s] test_loss=1.336 test_acc=0.4465  rates=[0.1336, 0.3602, 0.6031]
+time budget reached: 16448.1s
+best test acc: 0.4735
+
+## Per-epoch CSV
+epoch,step,wall,train_loss,train_acc,test_loss,test_acc,rates
+0,313,3317.7,1.4652,0.4629,1.4566,0.4185,"0.1453, 0.2283, 0.5741"
+1,626,6592.9,1.3283,0.5122,1.3602,0.4725,"0.1410, 0.2856, 0.5815"
+2,939,9891.1,1.2633,0.5226,1.3080,0.4735,"0.1368, 0.2853, 0.5802"
+3,1252,13174.9,1.3314,0.4855,1.3758,0.4725,"0.1364, 0.3354, 0.5783"
+4,1565,16448.1,1.2000,0.5174,1.3361,0.4465,"0.1336, 0.3602, 0.6031"
+
+## Best checkpoint
+-rw-r--r--  1 esi  staff  940194 May  7 01:25 results/ckpt_overnight_default_10k.pt
+
+## Final eval on full SMNIST test set:
+Loading checkpoint results/ckpt_overnight_default_10k.pt ...
+  ckpt fields: ['state_dict', 'cfg', 'test_acc', 'epoch']
+  ckpt epoch: 2, ckpt test_acc: 0.4735
+
+Loading SMNIST ...
+  test set: 10000 samples
+
+Evaluating on full test set ...
+  done in 80.8s
+
+=== FINAL RESULTS ===
+aux head accuracy: 0.5007 (5007/10000)
+pool_rate readout (aux readout): 0.1470
+
+Confusion matrix (rows=true, cols=pred):
+  0:   58    0   17   97    2  128  443    0  230    5  | acc 0.059
+  1:    0  994    0    0   66    3   14    1    8   49  | acc 0.876
+  2:    4    3   88   26   54   64  680    0  107    6  | acc 0.085
+  3:   19   29    9  252    5  305  180   17  133   61  | acc 0.250
+  4:    0   16    0    0  467    2   12    9    4  472  | acc 0.476
+  5:    6   17    2  158   13  235  227    5  148   81  | acc 0.263
+  6:    0    5    0    0   33    7  868    0   45    0  | acc 0.906
+  7:    0    8    1    2   38    2    0  468   13  496  | acc 0.455
+  8:   12    8    3   10    6   38   75    6  775   41  | acc 0.796
+  9:    1    4    2    4   33   11    4  134   14  802  | acc 0.795
+
+## Findings docs:
+total 120
+drwxr-xr-x   9 esi  staff   288 May  7 03:23 .
+drwxr-xr-x  15 esi  staff   480 May  6 23:21 ..
+-rw-r--r--   1 esi  staff  4136 May  6 23:29 ABSTRACT.md
+-rw-r--r--   1 esi  staff  7286 May  6 22:53 DESIGN.md
+-rw-r--r--   1 esi  staff  5360 May  6 22:45 EXPERIMENT_LOG.md
+-rw-r--r--   1 esi  staff  5450 May  6 23:04 LESSONS_LEARNED.md
+-rw-r--r--   1 esi  staff  4714 May  6 23:01 NEXT_STEPS.md
+-rw-r--r--   1 esi  staff  6513 May  6 23:12 RELATED_WORK.md
+-rw-r--r--   1 esi  staff  9315 May  7 03:23 RESULTS.md
+
+==========================================

@@ -1,0 +1,89 @@
+# --------------------------------------------------------------------
+# Data caches (raw datasets, never tracked)
+# --------------------------------------------------------------------
+data/
+hrn2/data/
+
+# --------------------------------------------------------------------
+# Generated artifacts: model checkpoints + cached features
+# These are produced by training and can always be regenerated.
+# --------------------------------------------------------------------
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Allow small example weights if explicitly tracked elsewhere by force-add.
+# (override with `git add -f path/to/file.pt`)
+
+results/feat_cache/
+results/feat_cache_*/
+hrn2/results/feat_cache/
+hrn2/results/feat_cache_*/
+
+# Keep CSV summaries (small) but ignore intermediate dumps
+results/*_dump.csv
+hrn2/results/*_dump.csv
+
+# --------------------------------------------------------------------
+# Logs
+# --------------------------------------------------------------------
+logs/
+*.log
+hrn2/logs/
+
+# --------------------------------------------------------------------
+# Python
+# --------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.python-version
+venv/
+.venv/
+env/
+.env
+
+# --------------------------------------------------------------------
+# Editors / OS
+# --------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# --------------------------------------------------------------------
+# LaTeX build artifacts
+# --------------------------------------------------------------------
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.synctex.gz
+*.toc
+*.nav
+*.snm
+*.vrb
+# Keep PDFs of papers (small) but ignore TikZ externalisation
+*.auxlock
+tikz-externalize-*
+
+# --------------------------------------------------------------------
+# Jupyter
+# --------------------------------------------------------------------
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# --------------------------------------------------------------------
+# Temp / scratch
+# --------------------------------------------------------------------
+tmp/
+.tmp/
+scratch/

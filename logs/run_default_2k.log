@@ -1,0 +1,4 @@
+device: cpu
+train: 2000, test: 500
+net params: {'total': 229146, 'layer_0': 9344, 'layer_1': 83712, 'layer_2': 136080, 'pool_bias': 10}
+[ep 0 step     0 t=  17.3s] loss=14.341 (ema 14.341) acc=0.031 (ema 0.031)

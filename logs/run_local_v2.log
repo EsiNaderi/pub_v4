@@ -1,0 +1,24 @@
+loading SMNIST ...
+net params: {'total': 226026, 'layer_0': 8704, 'layer_1': 82432, 'layer_2': 134880, 'pool_bias': 10}
+[ep 0 step     0 t=   0.6s] loss=5.583 (ema 5.583) acc=0.062 (ema 0.062) rates=0.131/0.034/0.302
+[ep 0 step     5 t=   3.4s] loss=3.123 (ema 5.343) acc=0.062 (ema 0.063) rates=0.141/0.096/0.471
+[ep 0 step    10 t=   6.3s] loss=3.102 (ema 4.884) acc=0.094 (ema 0.079) rates=0.213/0.171/0.553
+[ep 0 step    15 t=   9.2s] loss=3.016 (ema 4.440) acc=0.062 (ema 0.081) rates=0.250/0.076/0.490
+[ep 0 step    20 t=  12.0s] loss=2.657 (ema 4.105) acc=0.125 (ema 0.086) rates=0.193/0.115/0.474
+[ep 0 step    25 t=  14.7s] loss=2.622 (ema 3.777) acc=0.188 (ema 0.105) rates=0.174/0.100/0.378
+[ep 0 step    30 t=  17.6s] loss=2.698 (ema 3.487) acc=0.094 (ema 0.101) rates=0.158/0.108/0.357
+[ep 0 EVAL t=  23.3s] test_loss=2.6966 test_acc=0.0660 best=0.0660
+[ep 1 step    35 t=  25.6s] loss=2.453 (ema 3.266) acc=0.219 (ema 0.107) rates=0.154/0.110/0.324
+[ep 1 step    40 t=  28.4s] loss=2.354 (ema 3.072) acc=0.125 (ema 0.116) rates=0.156/0.170/0.434
+[ep 1 step    45 t=  31.2s] loss=2.565 (ema 2.918) acc=0.031 (ema 0.119) rates=0.184/0.153/0.414
+[ep 1 step    50 t=  34.1s] loss=2.457 (ema 2.798) acc=0.094 (ema 0.117) rates=0.237/0.189/0.516
+[ep 1 step    55 t=  36.9s] loss=2.199 (ema 2.693) acc=0.188 (ema 0.120) rates=0.218/0.191/0.510
+[ep 1 step    60 t=  39.7s] loss=2.321 (ema 2.616) acc=0.062 (ema 0.122) rates=0.194/0.217/0.578
+[ep 1 EVAL t=  46.6s] test_loss=2.7145 test_acc=0.1100 best=0.1100
+[ep 2 step    65 t=  47.8s] loss=2.718 (ema 2.616) acc=0.062 (ema 0.115) rates=0.176/0.196/0.554
+[ep 2 step    70 t=  50.7s] loss=2.190 (ema 2.530) acc=0.156 (ema 0.121) rates=0.178/0.212/0.534
+[ep 2 step    75 t=  53.5s] loss=2.348 (ema 2.474) acc=0.094 (ema 0.113) rates=0.164/0.218/0.563
+[ep 2 step    80 t=  56.3s] loss=2.376 (ema 2.454) acc=0.062 (ema 0.109) rates=0.150/0.259/0.724
+[ep 2 step    85 t=  59.1s] loss=2.333 (ema 2.437) acc=0.188 (ema 0.113) rates=0.159/0.267/0.713
+[ep 2 step    90 t=  62.0s] loss=2.362 (ema 2.408) acc=0.062 (ema 0.119) rates=0.199/0.299/0.752
+[ep 2 step    95 t=  64.6s] loss=2.091 (ema 2.378) acc=0.375 (ema 0.124) rates=0.206/0.255/0.802

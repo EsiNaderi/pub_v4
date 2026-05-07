@@ -1,0 +1,13 @@
+device: cpu
+train: 1000, test: 500
+net params: {'total': 21714, 'layer_0': 2624, 'layer_1': 19080, 'pool_bias': 10}
+[ep 0 step     0 t=   2.7s] loss=2.267 (ema 2.267) acc=0.312 (ema 0.312)
+[ep 0 step     3 t=  10.8s] loss=2.320 (ema 2.274) acc=0.125 (ema 0.278)
+[ep 0 step     6 t=  19.0s] loss=2.291 (ema 2.277) acc=0.125 (ema 0.260)
+[ep 0 step     9 t=  27.2s] loss=2.305 (ema 2.279) acc=0.156 (ema 0.246)
+[ep 0 step    12 t=  35.8s] loss=2.299 (ema 2.282) acc=0.125 (ema 0.232)
+[ep 0 step    15 t=  53.3s] loss=2.296 (ema 2.284) acc=0.156 (ema 0.215)
+[ep 0 step    18 t=  71.1s] loss=2.297 (ema 2.288) acc=0.125 (ema 0.195)
+[ep 0 step    21 t=  88.8s] loss=2.299 (ema 2.290) acc=0.219 (ema 0.189)
+[ep 0 step    24 t= 106.7s] loss=2.305 (ema 2.292) acc=0.094 (ema 0.174)
+[ep 0 step    27 t= 124.5s] loss=2.303 (ema 2.293) acc=0.062 (ema 0.161)
