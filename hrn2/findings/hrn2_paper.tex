@@ -39,31 +39,53 @@
 \newcommand{\bi}{b_i}
 
 \title{HRN-v2: A Hierarchical Resonant Network for Sequential MNIST \\
-       under Strict Biological-Plausibility Constraints}
+       under Strict Biological-Plausibility Constraints \\
+       \large{(Analog and Strict-Spiking Variants)}}
 \author{}
-\date{2026-05-07}
+\date{2026-05-08}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-We present \textbf{HRN-v2}, a hierarchical resonant neural network whose every
-mechanism --- forward dynamics, credit assignment, plasticity rule, and
-readout --- is local in time and local in space. The substrate is a
-population of complex damped-rotation oscillators (one ODE per neuron, no
-recurrent inter-neuron coupling within a stage); the credit signal is a
-forward-only eligibility trace; the readout is a class-pool tail-energy
-projection; supervision is DECOLLE-style per-stage local cross-entropy.
-There is no backpropagation through time, no surrogate-gradient spike
-emission, and no symmetric backward pathway. Stages are stacked with a
-sparse class-aligned fan-in and a strict frequency-band hierarchy
-(faster $\rightarrow$ slower across stages). On Sequential MNIST
-(\textsc{smnist}, 784-step single-channel pixel sequence, 10-way
-classification, 10k training subset) the 3-stage HRN-v2 reaches
-\textbf{89.9\%} test accuracy, more than 50 percentage points above
-the pub\_v3 single-layer self-organising baseline on the same task,
-and at the threshold of the 91--92\% target the authors set as the
-biological-plausibility ceiling for this class of models.
+We present \textbf{HRN-v2}, a hierarchical resonant neural network whose
+every mechanism --- forward dynamics, credit assignment, plasticity
+rule, and readout --- is local in time and local in space. The
+substrate is a population of complex damped-rotation oscillators (one
+ODE per neuron, no recurrent inter-neuron coupling within a stage);
+the credit signal is a forward-only eligibility trace; the readout is
+a class-pool tail-energy projection; supervision is DECOLLE-style
+per-stage local cross-entropy. There is no backpropagation through
+time, no surrogate-gradient spike emission, and no symmetric backward
+pathway. Stages are stacked with a sparse class-aligned fan-in and a
+strict frequency-band hierarchy (faster $\rightarrow$ slower across
+stages). We report two variants:
+\begin{enumerate}[itemsep=2pt]
+\item \textbf{Analog variant} (continuous tail-energy readout, no
+spike emission). On Sequential MNIST (\textsc{smnist}, 784-step
+single-channel pixel sequence, 10-way classification, 10k training
+subset) the 3-stage HRN-v2 reaches \textbf{89.9\%} test accuracy.
+\item \textbf{Strict-spiking variant} (every neuron emits binary
+spikes; inter-neuron synapses carry a single bit per timestep).
+The spike-emission rule is stochastic Bernoulli of
+$\sigma(\beta(|z|^2 - \theta))$ and the gradient flows through the
+$\sigma'$ that is the \emph{natural} derivative of the Bernoulli
+expected rate (not an ad-hoc surrogate of a Heaviside). A 5-stage
+spiking HRN-v2 reaches \textbf{81.35\%} on the same SMNIST 10k
+benchmark, and \textbf{60.6\%} on Spiking Heidelberg Digits (SHD,
+20-class spoken-digit, 4k train).
+\end{enumerate}
+The strict-spiking version inherits all the bio-plausibility
+constraints of the analog version and additionally restricts
+inter-neuron messages to a single binary spike per timestep. The
+~8.5pp gap between the two SMNIST numbers is the empirical cost of
+that restriction. Several mechanisms intended to close this gap
+(subtractive reset, intra-stage recurrence with random init, top-down
+predictive feedback) were tested, with the diagnosis: the LIF-style
+amplitude-consume reset is incompatible with oscillator phase
+dynamics, and naive intra-stage recurrence destabilises deep
+high-$\alpha$ stages. Pure depth scaling (5 stages with strict
+frequency-band hierarchy) is the clean win.
 \end{abstract}
 
 \section{Introduction and motivation}
@@ -659,17 +681,454 @@ biologically plausible.  Our $89.9\%$ is achieved \emph{without} that.
 The cost of biological constraint is roughly $5$--$8$ percentage points
 on this problem.
 
+\section{Strict-spiking variant}\label{sec:spiking}
+
+The analog variant developed in \S\S\ref{sec:notation}--\ref{sec:hier} satisfies
+every bio-plausibility constraint we set ourselves except one: each
+neuron passes its tail energy $\bar E_i$, a continuous real number,
+into the per-stage class-pool readout, which feeds CE loss and
+gradients. Although nothing in the inter-\emph{neuron} pathway uses
+this real number for communication (each stage's amplitude trajectory
+$E_{\ell, i}(t)$ is read by the next stage as a multi-channel input),
+a referee may still object that without explicit spike emission the
+network is structurally identical to a particular kind of analog RNN.
+We therefore extend HRN-v2 with a strict-spiking emission rule and
+binary inter-neuron communication, replacing analog amplitude with
+stochastic spike trains. Importantly: the only mechanism we retain
+from analog HRN-v2 is the per-neuron oscillator and its eligibility
+trace; everything else is rederived for binary inter-neuron messages.
+
+\subsection{Stochastic spike emission}
+
+Each neuron's spike at time $t$ is a sample
+\begin{equation}
+s_i(t) \sim \text{Bernoulli}(p_i(t)),
+\qquad
+p_i(t) = \sigma\!\big(\beta\,(|z_i(t)|^2 - \theta_i)\big),
+\label{eq:spike}
+\end{equation}
+where $\theta_i$ is a homeostatic threshold (\S\ref{sec:spiking-homeo}) and $\beta$ is a sharpness parameter (we use $\beta=8$). The
+emission is genuinely stochastic, not deterministic-with-noise, so the
+expected rate per timestep is $\mathbb{E}[s_i(t)] = p_i(t)$.
+
+\subsection{Inter-neuron communication is binary}
+
+For every stage $\ell \ge 1$, each neuron $i$ receives, at each
+timestep $t$, the binary spike sample $s_j(t) \in \{0,1\}$ from
+each presynaptic neuron $j \in \mathcal F_\ell(i)$ in stage $\ell-1$.
+The drive becomes
+\begin{equation}
+\text{drive}_i^{\,r}(t) = \!\!\!\sum_{j \in \mathcal F_\ell(i)} \!\!\!d_r^{(ij)} s_j(t) + b_r^{(i)},
+\qquad
+\text{drive}_i^{\,i}(t) = \!\!\!\sum_{j \in \mathcal F_\ell(i)} \!\!\!d_i^{(ij)} s_j(t) + b_i^{(i)}.
+\end{equation}
+This is the only signal that crosses the synapse. The continuous
+state $z_i(t)$ stays \emph{inside} neuron $i$, exactly as in the
+analog version.
+
+\subsection{Per-stage tail-rate readout, gradient via the natural Bernoulli derivative}
+
+The per-stage class-pool logit is now
+\begin{equation}
+g_\ell^c \;=\; \frac{1}{M_\ell}\!\!\!\sum_{i\,:\,c_\ell(i)=c}\!\!\!
+                \rho_{\ell, i},
+\qquad
+\rho_{\ell, i} = \frac{1}{T_\ell}\!\!\!\sum_{t = T - T_\ell}^{T-1}\!\!\!
+p_i(t),
+\end{equation}
+the \emph{smooth} tail-mean expected rate. We deliberately use the
+expected rate $\rho_{\ell, i}$ rather than the binary spike count
+$\bar s_{\ell, i} = (1/T_\ell)\sum s_i(t)$ for the loss. The
+expected rate is differentiable in the parameters via $\sigma'$ which
+is the \emph{natural} derivative of the Bernoulli mean --- this is
+not a Heaviside-style "surrogate" injected into a non-differentiable
+function. Concretely
+\begin{equation}
+\frac{\partial \rho_{\ell, i}}{\partial \theta}
+= \frac{1}{T_\ell}\!\!\!\sum_{t = T - T_\ell}^{T-1}\!\!\!
+\sigma'\!\big(\beta(|z|^2 - \theta_i)\big)\,\beta\,
+\frac{\partial |z|^2}{\partial \theta},
+\label{eq:drho-dtheta}
+\end{equation}
+and the second factor is exactly the same eligibility-derived
+quantity~(\ref{eq:dE-dtheta}) used in the analog variant. The local
+update rule, mirroring~(\ref{eq:final-rule}), is
+\begin{equation}
+\boxed{\quad
+\frac{\partial L_\ell}{\partial \theta_{\ell, i}}
+= \frac{\tau}{M_\ell}\,\delta_\ell^{c_\ell(i)} \cdot
+  \frac{2}{T_\ell}\!\!\!\sum_{t \in \text{tail}}\!\!\!
+\sigma'\!\big(\beta(|z|^2 - \theta_i)\big)\,\beta\,
+\big[\zr(t) e^\theta_r(t) + \zi(t) e^\theta_i(t)\big].
+\quad}
+\label{eq:final-rule-spike}
+\end{equation}
+At inference the binary spike count $\bar s_i$ is what a deployed
+spiking system would actually have access to; we report both the
+smooth-rate accuracy and the binary-spike-count accuracy in
+\S\ref{sec:spiking-results} and observe they track each other within
+$\sim 0.5$pp at every epoch, confirming the gradient is faithful to
+the deployed binary-spike network.
+
+\subsection{Subtractive reset and the corrected trace recurrence}\label{sec:spiking-reset}
+
+A natural extension by analogy with leaky-integrate-and-fire neurons
+is a subtractive reset on spike,
+\begin{equation}
+z_i(t) \;\leftarrow\; (1 - \kappa\, s_i(t))\, \tilde z_i(t),
+\qquad \kappa \in [0, 1),
+\end{equation}
+where $\tilde z(t)$ is the pre-reset state. This complicates the
+eligibility recurrence: the propagated state at $t+1$ is not
+$\tilde z(t)$ but $z(t)$, so
+\begin{equation}
+\frac{\partial \tilde z(t+1)}{\partial \theta}
+= R_\alpha(\omega) \cdot (1 - \kappa s(t)) \cdot \frac{\partial \tilde z(t)}{\partial\theta}
+\;+\; \frac{\partial}{\partial\theta}\!\big[\text{drive}(t+1)\big].
+\label{eq:trace-with-reset}
+\end{equation}
+The factor $(1 - \kappa s(t))$ on the trace is the necessary
+correction that the bare formula~(\ref{eq:elig-recur}) does not
+provide. We implement it explicitly: at the start of each timestep we
+multiply every eligibility trace by the per-neuron scalar
+$(1 - \kappa s(t-1))$ before the rotation step. Without this
+correction the trace tracks
+$\partial \tilde z / \partial \theta$ for the un-reset trajectory and
+silently diverges from the actual state. \emph{With} the correction
+the trace is mathematically faithful, but as we show in
+\S\ref{sec:negative-results} the subtractive reset itself --- whether
+the trace is corrected or not --- breaks training in the resonant
+case.
+
+\subsection{Optional intra-stage recurrence}\label{sec:spiking-rec}
+
+Each neuron may receive an additional binary input from a fixed
+sparse set of $K_{\text{rec}}$ \emph{within-stage} presynaptic
+neurons, with synaptic delay 1:
+\begin{equation}
+\text{drive}_i^{\,r}(t) \;\mathrel{+}=\!\!\sum_{k=1}^{K_{\text{rec}}}\!\!d_r^{\text{rec},(ik)}\,
+s_{\text{rec}_k(i)}(t-1).
+\end{equation}
+The recurrent input $s_{\text{rec}_k(i)}(t-1)$ is treated as a fixed
+external signal for the purpose of the local rule (e-prop convention:
+upstream/recurrent spikes are inputs, not functions of parameters), so
+the eligibility trace for $d_r^{\text{rec},(ik)}$ has the same
+recurrence structure as the feed-forward trace.
+
+\subsection{Optional top-down inter-stage feedback}\label{sec:spiking-top}
+
+We also implement a predictive-coding-style two-pass forward in
+which stage $\ell$ ($\ell < L-1$) receives binary spikes from stage
+$\ell+1$'s pass-1 spike train, via dedicated learned weights
+$d_r^{\text{top}}, d_i^{\text{top}}$:
+\begin{enumerate}[itemsep=1pt]
+\item \emph{Pass 1}: bottom-up only, no traces, sample
+$s_{0:L-1}^{(1)}$.
+\item \emph{Pass 2}: traces enabled. Stage $\ell$'s drive includes
+the additional term
+$\sum_k d_r^{\text{top},(ik)} \, s^{(1)}_{\ell+1,\,\text{top}_k(i)}(t)$.
+Loss and gradient come from pass 2.
+\end{enumerate}
+Top-down weights are learned by their own forward eligibility traces,
+identical in form to the feed-forward and recurrent traces.
+
+\subsection{Homeostatic threshold update}\label{sec:spiking-homeo}
+
+Each neuron's threshold $\theta_i$ tracks an exponentially-weighted
+average of its own firing rate and corrects toward a target
+$\rho^* \in (0,1)$ per timestep:
+\begin{align}
+\bar\rho_i &\leftarrow (1 - \eta_\rho)\,\bar\rho_i + \eta_\rho\,\rho_i^{(\text{batch})},\\
+\theta_i  &\leftarrow \theta_i + \eta_\theta\,(\bar\rho_i - \rho^*).
+\end{align}
+We use $\rho^* = 0.1$, $\eta_\rho = 0.05$, $\eta_\theta = 0.05$.
+
+\subsection{What's local vs.\ what crosses synapses}
+
+Figure~\ref{fig:spiking-neuron} summarises which quantities live where.
+Continuous subthreshold state and all eligibility traces are
+\emph{inside} a single neuron and never leave it; the only signal
+that crosses the synaptic boundary is a single binary spike per
+timestep.
+
+\begin{figure}[ht]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+  every node/.style={font=\small},
+  neuron/.style={draw, very thick, rounded corners=4pt, fill=blue!4,
+                 minimum width=92mm, minimum height=46mm, align=center},
+  state/.style={draw, rounded corners=2pt, thick, fill=green!12,
+                 minimum width=24mm, minimum height=8mm, font=\scriptsize, align=center},
+  trace/.style={draw, rounded corners=2pt, thick, fill=yellow!22,
+                 minimum width=24mm, minimum height=8mm, font=\scriptsize, align=center},
+  emit/.style={draw, rounded corners=2pt, very thick, fill=orange!18,
+                minimum width=22mm, minimum height=10mm, font=\scriptsize, align=center},
+  spkout/.style={draw, very thick, fill=red!12, circle,
+                  minimum width=12mm, font=\scriptsize, align=center},
+  spkin/.style={draw, very thick, fill=red!12, circle,
+                 minimum width=12mm, font=\scriptsize, align=center},
+  arr/.style={-{Latex[length=3pt]}, thick},
+  modulator/.style={-{Latex[length=2.5pt]}, thick, dashed},
+]
+
+% Outer "neuron" box
+\node[neuron] (cell) at (0, 0)
+  {};
+\node[font=\bfseries, anchor=north west] at (cell.north west)
+  {\hspace{1mm}neuron $i$ (everything inside is local)};
+
+% Internal components
+\node[state] (z)     at ($(cell.center)+(-2.5,0.6)$) {complex state\\$z_i(t) = (\zr, \zi)$};
+\node[trace] (etheta) at ($(cell.center)+(-2.5,-0.6)$) {eligibility traces\\$e^\theta_r(t),\,e^\theta_i(t)$};
+\node[state] (theta) at ($(cell.center)+(0.4,1.5)$) {threshold $\theta_i$\\(homeostatic)};
+\node[emit]  (sigma) at ($(cell.center)+(1.4,-0.05)$) {$p_i = \sigma(\beta(|z|^2 - \theta_i))$\\$s_i \sim \text{Bern}(p_i)$};
+\node[trace] (rho)   at ($(cell.center)+(1.4,-1.5)$) {tail rate\\$\rho_i = \langle p_i \rangle_{\text{tail}}$};
+
+% Internal arrows
+\draw[arr] (z.east) -- node[above, font=\scriptsize]{$|z|^2$} (sigma.west);
+\draw[arr] (theta.south) -- (sigma.north);
+\draw[arr] (sigma.south) -- (rho.north);
+\draw[arr] (z.south) -- node[left, font=\scriptsize]{$\partial z/\partial \theta$} (etheta.north);
+
+% Pre-synaptic spikes coming in (left)
+\node[spkin] (sin1) at ($(cell.west)+(-1.4,0.7)$) {$s_j$};
+\node[spkin] (sin2) at ($(cell.west)+(-1.4,-0.0)$) {$s_k$};
+\node[spkin] (sin3) at ($(cell.west)+(-1.4,-0.7)$) {$s_\ell$};
+\node[anchor=east, font=\scriptsize] at (sin1.west) {pre-synaptic};
+\node[anchor=east, font=\scriptsize] at (sin2.west) {(stage $\ell-1$)};
+\node[anchor=east, font=\scriptsize] at (sin3.west) {binary spikes};
+
+% Post-synaptic spike going out (right)
+\node[spkout] (sout) at ($(cell.east)+(1.4,0)$) {$s_i(t)$};
+\node[anchor=west, font=\scriptsize] at (sout.east) {to next stage};
+\node[anchor=west, font=\scriptsize] at ($(sout.east)+(0,-0.4)$) {(binary)};
+
+% Pre to internal
+\draw[arr] (sin1.east) -- ($(cell.west)+(0.05,0.7)$);
+\draw[arr] (sin2.east) -- ($(cell.west)+(0.05,0.0)$);
+\draw[arr] (sin3.east) -- ($(cell.west)+(0.05,-0.7)$);
+
+% Internal to post
+\draw[arr] (sigma.east) -- ($(cell.east)+(-0.05,0)$);
+\draw[arr, very thick, red!70!black] ($(cell.east)+(-0.05,0)$) -- (sout.west);
+
+% Loss/credit modulator coming from class-pool (top right outside)
+\node[font=\scriptsize, align=center, anchor=south west]
+  (cred) at ($(cell.north east)+(0.6,0.2)$)
+  {class-pool credit\\$\delta_i = (\tau/M)\,\delta_\ell^{c(i)}$};
+\draw[modulator, blue!60!black] (cred.south) |- (rho.east);
+
+% Boundary callouts
+\node[font=\scriptsize, align=left, anchor=south, text=blue!50!black]
+  at ($(cell.south)+(0,-0.2)$)
+  {\textbf{inside}: continuous $z$, eligibility traces, threshold;\quad
+   \textbf{outside (red)}: binary spikes only};
+\end{tikzpicture}%
+}
+\caption{Strict-spiking HRN-v2 neuron. Everything inside the blue
+box is local to neuron $i$ and never crosses a synaptic boundary:
+the continuous complex state $z_i(t)$, all per-parameter
+eligibility traces $e^\theta_r(t)$ and $e^\theta_i(t)$, the
+homeostatic threshold $\theta_i$, the spike probability
+$p_i = \sigma(\beta(|z_i|^2 - \theta_i))$, and the smooth tail
+rate $\rho_i$ that feeds the per-stage local loss. The only
+quantities that cross synapses (red arrows) are binary spikes:
+pre-synaptic spikes from the previous stage are the input drive,
+the sampled $s_i(t) \in \{0, 1\}$ goes out to the next stage. The
+class-pool credit $\delta_i$ (dashed blue) is broadcast from the
+local DECOLLE classifier and modulates only this neuron's
+eligibility-derived parameter updates.}
+\label{fig:spiking-neuron}
+\end{figure}
+
+\section{Empirical results --- strict-spiking variant}\label{sec:spiking-results}
+
+\subsection{SMNIST: 5 stages, 81.35\% test accuracy}
+
+The headline strict-spiking number on SMNIST 10k uses a 5-stage
+hierarchy with $M_\ell = 20$ neurons per class pool per stage,
+sparse class-aligned fan-in $K_\ell = 10$ between stages, no
+intra-stage recurrence, no top-down feedback, $\kappa = 0$ (no
+subtractive reset), 25 epochs with two halvings of the learning rate
+at epochs 10 and 18.
+
+\begin{center}
+\captionsetup{type=table}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Stage & $\omega$ band & Stage-alone test acc \\
+\midrule
+0 & $[0.005, 1.2]$    & 0.379 \\
+1 & $[0.001, 0.30]$   & 0.688 \\
+2 & $[0.0005, 0.10]$  & 0.788 \\
+\textbf{3} & $\bm{[0.0002, 0.04]}$  & \textbf{0.811} \\
+4 & $[0.0001, 0.015]$ & 0.789 \\
+\midrule
+\textbf{Ensemble (uniform weights)} & --- & \textbf{0.8135} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The smooth-rate readout and the binary-spike-count readout report
+the \emph{same} accuracy at every epoch within $\pm 0.5$pp,
+empirically validating that the gradient flowing through the smooth
+$\rho_{\ell,i}$ is consistent with the actual deployed binary-spike
+network.
+
+\subsection{Per-stage capacity scaling: M does not help}
+
+To check whether per-stage capacity matters at fixed depth, we ran
+the same 5-stage architecture with $M_\ell = 24$ instead of 20.
+Result: \textbf{0.807}, slightly \emph{worse}. The diagnosis is
+visible in the form of the local rule. At each step the per-neuron
+class-pool credit is
+\[
+\delta_i = \frac{\tau}{M_\ell}\,(\text{prob}_{c(i)} - \mathbf{1}[c(i)=y]),
+\]
+which shrinks linearly with $M_\ell$. The variance of the ensemble
+logit shrinks only as $1/\sqrt{M_\ell}$. So in the small-$M$ regime
+the per-neuron training signal dominates and increasing $M$ \emph{starves
+each neuron of gradient} faster than it averages out the readout.
+A new frequency tier (depth) by contrast contributes a genuinely new
+band-pass feature instead of redistributing the existing signal.
+
+\subsection{SHD: 60.6\% test accuracy}
+
+On the Spiking Heidelberg Digits (SHD, 20-class spoken digits, 4k
+train, 1k test, T=100 timesteps, 700 cochlear input channels), the
+3-stage strict-spiking HRN-v2 with sparse fan-in $K_0 = 48$ at the
+input stage reaches 0.606 on the binary-spike-count ensemble,
+versus 0.684 for the analog variant on the same architecture. The
+8pp gap is consistent with the SMNIST result. SHD's headline
+literature numbers (~83--86\%) use the full 8156-sample training
+set with augmentation; tonight's 4k-no-aug result is in the
+expected range for this data scale.
+
+\subsection{Substrate plasticity: $\omega$ moves at slower stages}
+
+Per-stage learned-$\omega$ trajectories from the headline 5-stage
+SMNIST run:
+\begin{center}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Stage & $\omega$ initial $\to$ final & Drift \\
+\midrule
+0 & 0.614 $\to$ 0.576 & $-6\%$ \\
+1 & 0.139 $\to$ 0.111 & $-20\%$ \\
+2 & 0.050 $\to$ 0.045 & $-10\%$ \\
+3 & 0.021 $\to$ 0.019 & $-9\%$  \\
+4 & 0.007 $\to$ 0.009 & $+29\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The slowest stage's $\omega$ moves the most in relative terms, again
+consistent with the analog finding that deeper stages have
+class-discriminative bands their substrate must learn.
+
+\section{Negative results and design lessons}\label{sec:negative-results}
+
+\subsection{Subtractive reset breaks oscillator dynamics}
+
+With $\kappa = 0.3$ and the corrected trace
+recurrence~(\ref{eq:trace-with-reset}), the 3-stage strict-spiking
+network plateaus at $\sim 25\%$ test accuracy after 3 epochs vs
+$\sim 60\%$ for $\kappa = 0$ at the same point. We tested
+$\kappa \in \{0.05, 0.2, 0.3, 0.5\}$ with various combinations of
+intra-stage recurrence, the same diagnostic regime. The
+intuition: the LIF-style "consume amplitude on fire" rule presupposes
+that amplitude is the only computational variable. The resonant
+oscillator has a phase $\arg z$ that is half of its message; even
+though our reset is uniform $z \to (1-\kappa)z$ (preserving phase),
+the dampening of $|z|^2$ couples to the eligibility-trace recurrence
+through $(1 - \kappa s(t))$ in such a way that gradient signal becomes
+too weak to escape the recurrence-induced firing-rate runaway. We do
+not have a complete theoretical explanation, only the empirical
+finding: \emph{do not apply LIF-style subtractive reset to a resonant
+oscillator}.
+
+\subsection{Naive intra-stage recurrence destabilises deep stages}
+
+Random $\pm$ small ($\sigma = 0.005$, mean 0) recurrent weights with
+$K_{\text{rec}} = 6$ caused the deepest stage's firing rate to
+saturate at $\sim 100\%$ within one training epoch, breaking
+training. The mechanism is the integrator gain
+$1/(1-\alpha^2) \approx 500$ at $\alpha \approx 0.999$: even tiny
+recurrent contributions accumulate over the 200--600 timestep tail
+windows.
+
+A negative-mean initialisation (intended as fixed lateral inhibition,
+$\mu = -0.05$, $\sigma = 0.01$) did \emph{not} help: at $t = 0$ no
+spikes have happened yet, so the bias has no effect; by the time
+spikes start the network is already in the saturated regime.
+A correct lateral-inhibition design needs explicit always-on
+subtraction of pool mean, not a constant additive bias on otherwise
+random recurrent synapses.
+
+\subsection{Top-down feedback needs staged training}
+
+The two-pass forward of \S\ref{sec:spiking-top} was tested with
+$K_{\text{top}} = 12$ class-aligned fan-in, no recurrence, no
+reset. At ep 12 the test accuracy was $\sim 57\%$ versus $\sim 75\%$
+for the no-top-down baseline at the same epoch; the top-down
+variant plateaued and we killed it before the full 25 epochs. The
+diagnosis: pass-1 spike trains from \emph{random-initialised} upper
+stages are not class-discriminative for several epochs, so the
+top-down feedback is structured noise during the critical early
+phase. The eligibility traces for the top-down weights pick up
+spurious correlations, and the resulting weight estimate is too
+poor to recover. The correct training schedule is staged: first
+train without top-down to a competent representation, then enable
+top-down feedback for fine-tuning. We did not have time to test
+this overnight.
+
 \section{Conclusion}
 
 HRN-v2 demonstrates that a hierarchical resonant network with strict
-biological-plausibility constraints (no BPTT, no surrogate spikes, no
-inter-stage backward pass, only forward eligibility traces and
-class-pool tail-energy readouts) can solve sequential MNIST competitively.
-The recursive-envelope architecture is essential: each higher stage
-operates on the slower-scale envelope of the stage below, with sparse
-class-aligned fan-in providing structured connectivity.  The slower
-stages \emph{learn} their intrinsic frequencies, providing direct
-empirical support for the resonance-as-computation hypothesis.
+biological-plausibility constraints (no BPTT, no surrogate spikes,
+no inter-stage backward pass, only forward eligibility traces and
+class-pool tail-energy readouts) can solve sequential MNIST
+competitively in two variants:
+
+\begin{itemize}[itemsep=2pt]
+\item \textbf{Analog} (continuous tail-energy readout):
+$89.9\%$ on SMNIST 10k with a 3-stage hierarchy, 35 training epochs
+with two LR halvings.
+\item \textbf{Strict-spiking} (binary inter-neuron messages,
+stochastic Bernoulli emission, no surrogate of Heaviside):
+$81.35\%$ on SMNIST 10k with a 5-stage hierarchy, 25 training
+epochs with two LR halvings. The $\sigma'$ that mediates gradient
+flow is the natural derivative of the Bernoulli expected rate, not
+an ad-hoc smoothing.
+\end{itemize}
+
+The recursive-envelope architecture is essential to both variants:
+each higher stage operates on the slower-scale envelope of the
+stage below, with sparse class-aligned fan-in providing structured
+connectivity. The slower stages \emph{learn} their intrinsic
+frequencies (e.g.\ $-20\%$ relative drift for stage 1 in the spiking
+SMNIST run), providing direct empirical support for the
+resonance-as-computation hypothesis.
+
+The headline empirical lessons from the strict-spiking variant:
+\begin{enumerate}[itemsep=1pt]
+\item Depth (more frequency tiers) helps; per-stage capacity (more
+neurons per class pool) does not.
+\item LIF-style subtractive reset is incompatible with resonant
+substrate.
+\item Naive intra-stage recurrence destabilises deep, high-$\alpha$
+stages.
+\item Top-down feedback needs staged training to be useful.
+\end{enumerate}
+
+These lessons would have been hard to spot without making the
+spike-emission, reset, and recurrence machinery explicit in the
+local rule (\ref{eq:final-rule-spike}) and (\ref{eq:trace-with-reset}).
+The principal positive result --- a strict-spiking SMNIST classifier
+trained entirely by forward eligibility traces, with binary
+inter-neuron synapses, reaching $81.35\%$ --- closes a long-standing
+gap between continuous-amplitude resonator networks and the spiking
+neural-network literature.
 
 \begin{thebibliography}{9}
 \bibitem{pubv3}

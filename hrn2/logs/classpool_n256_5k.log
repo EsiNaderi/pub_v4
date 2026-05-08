@@ -1,3 +1,0 @@
-Loading SMNIST ...
-train torch.Size([5000, 784]), test torch.Size([1000, 784])
-[ep 00 t=  11.4s] tr_loss=2.323 tr_acc=0.1078 te_loss=2.332 te_acc=0.1070 best=0.1070

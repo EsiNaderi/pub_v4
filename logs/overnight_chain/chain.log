@@ -1,8 +1,0 @@
-[chain] waiting for main BPTT to finish...
-[chain] main BPTT done at Thu  7 May 2026 03:14:52 EDT
-[chain] phase 2: head-only on full SMNIST
-[chain] phase 2 done at Thu  7 May 2026 03:23:14 EDT
-[chain] phase 3: multi-seed random feats
-[chain] phase 3 done at Thu  7 May 2026 03:26:20 EDT
-[chain] phase 4: morning summary
-[chain] all phases done at Thu  7 May 2026 03:27:42 EDT

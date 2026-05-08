@@ -1,2 +1,0 @@
-epoch,wall,train_acc,test_acc,best_test
-0,11.4,0.1078,0.1070,0.1070

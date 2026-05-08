@@ -17,7 +17,6 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))   # pub_v4/src for smnist_data
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))           # hrn2/src takes priority
 
 import torch

@@ -1,3 +1,0 @@
-epoch,train_loss,train_acc,test_loss,test_acc,best_test,omega_mean,alpha_mean,theta_mean,usage_max
-0,2.3026,0.0970,2.3026,0.0840,0.0840,0.6634,0.9749,1.000,0.013
-1,2.2497,0.2190,2.2532,0.1700,0.1700,0.6639,0.9747,1.000,0.056

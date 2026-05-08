@@ -1,0 +1,2 @@
+epoch,wall,tr_ac_smooth,tr_ac_spike,te_a0_smooth,te_a1_smooth,te_a2_smooth,te_ac_smooth,te_a0_spike,te_a1_spike,te_a2_spike,te_ac_spike,best_te_ac_spike,rate0,rate1,rate2,om0,om1,om2
+0,214.5,0.0976,0.1041,0.1345,0.1140,0.0970,0.0950,0.1030,0.0975,0.1055,0.1015,0.1015,0.0205,0.0256,0.0332,0.6049,0.1526,0.0396
