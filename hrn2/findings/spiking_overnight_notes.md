@@ -123,3 +123,71 @@ architecture works at depth, no special tricks needed.
   pool-mean activity instead of random recurrent weights.
 * **Spectral readout**: FFT of spike train over tail window, magnitude
   at characteristic frequency as the neuron's feature.
+
+## Follow-up: spectral-geodesic strict-spiking readout (2026-05-08)
+
+We tested the spectral-readout idea as a spiking-only spectral-geodesic
+head: each stage keeps local tail-window spike-spectrum demodulators,
+and class evidence is computed by distance to complex spectral
+prototypes instead of pure spike count/rate. Binary spikes remain the
+only inter-stage signal, and oscillator parameters still update by
+forward eligibility traces modulated by local readout credit.
+
+Interrupted long run:
+
+```bash
+python3 -B experiments/train_spectral_geodesic_5stage_smnist_spiking.py \
+  --m_per_class 20 --k_fanin 12 \
+  --epochs 25 --batch 64 \
+  --train_size 10000 --test_size 2000 \
+  --threads 4 --spec_q 4 \
+  --csv results/smnist_spectral_geodesic_5stage_spiking.csv
+```
+
+Best observed binary-spike ensemble before interruption: **84.85%** at
+epoch 12. This is a +3.5pp improvement over the 81.35% spike-rate
+baseline. At the peak epoch, stage-alone binary accuracies were:
+
+| Stage | Test acc |
+|---|---:|
+| 0 | 0.434 |
+| 1 | 0.651 |
+| 2 | 0.799 |
+| 3 | 0.837 |
+| 4 | 0.836 |
+| Ensemble | **0.8485** |
+
+The early deep-stage saturation also self-corrected: stage 3/4 rates
+started near 0.95/1.00 at epoch 0 and were 0.047/0.083 at the best
+epoch. This is the first evidence that spectral organization of spike
+trajectories gives a genuine improvement over spike-rate counting
+without relaxing the strict-spiking constraint.
+
+## Follow-up: spectral-geodesic SHD result (2026-05-08)
+
+We then ported the same strict-spiking spectral-geodesic readout to
+SHD. The existing SHD cache uses 4k train / 1k test examples, T=100
+time bins, 700 cochlear channels, and 20 classes. Architecture:
+3 stages, M=12 neurons/class/stage, random sparse cochlear fan-in
+K0=48, class-aligned K1=K2=12, binary inter-stage spikes only.
+
+Best binary-spike ensemble: **76.70%** at epoch 16.
+
+| Method | Best binary test |
+|---|---:|
+| Analog SHD 3-stage HRN-v2 | 0.684 |
+| Strict-spiking SHD spike-rate readout | 0.606 |
+| **Strict-spiking SHD spectral-geodesic readout** | **0.767** |
+
+Peak stage-alone binary accuracies:
+
+| Stage | Test acc | Spike rate |
+|---|---:|---:|
+| 0 | 0.600 | 0.111 |
+| 1 | 0.756 | 0.113 |
+| 2 | 0.738 | 0.104 |
+| Ensemble | **0.767** | --- |
+
+This is stronger evidence than SMNIST that the spike-spectrum geometry
+is useful: the same local rule beats both the strict-spiking SHD
+baseline and the previous analog SHD baseline on the local cache.

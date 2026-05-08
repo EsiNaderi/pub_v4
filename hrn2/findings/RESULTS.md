@@ -25,6 +25,10 @@ constraints.
 | **DECOLLE 2-stage**, **25 ep with LR decay at 14** | | **0.829** | LR decay stabilizes stage 1 |
 | **DECOLLE 3-stage**, **M=20/class, 20 ep with LR decay at 12** | | **0.866** | 3rd stage adds +3.7pp |
 | **DECOLLE 3-stage**, **M=24/class, 35 ep, 2 LR decays at 12 & 24** | | **0.899** | second LR decay added +3pp |
+| **Strict-spiking 5-stage**, **binary spike-rate readout** | spike Bernoulli + local eligibility | **0.8135** | no reset, no recurrence; previous strict-spiking headline |
+| **Strict-spiking spectral-geodesic 5-stage**, **interrupted at ep 13** | spike-spectrum prototypes + local eligibility | **0.8485** | binary-spike ensemble peak at ep 12; +3.5pp over spike-rate readout |
+| **SHD strict-spiking 3-stage**, **binary spike-rate readout** | spike Bernoulli + local eligibility | **0.606** | 4k/1k SHD cache |
+| **SHD strict-spiking spectral-geodesic 3-stage** | spike-spectrum prototypes + local eligibility | **0.767** | 4k/1k SHD cache; +16.1pp over spike-rate SHD |
 
 ## What works
 
@@ -98,6 +102,80 @@ to 0.183 over 25 epochs) — the substrate itself is plastic.
 
 Each higher stage's substrate genuinely adapts at its characteristic
 time-scale.
+
+## Strict-spiking spectral-geodesic follow-up
+
+Date: 2026-05-08
+
+A spiking-only spectral-geodesic readout improves the strict-spiking
+SMNIST result from **81.35%** to **84.85%** on the same 10k train /
+2k test protocol. The run was interrupted after epoch 13 to optimize
+the implementation, but the best binary-spike ensemble accuracy was
+already **0.8485** at epoch 12:
+
+| Epoch | Binary ensemble | Stage 2 | Stage 3 | Stage 4 | Rates 0/1/2/3/4 |
+|---:|---:|---:|---:|---:|---|
+| 3 | 0.8285 | 0.7360 | 0.8240 | 0.8230 | 0.112/0.113/0.084/0.102/0.171 |
+| 7 | 0.8395 | 0.7785 | 0.8255 | 0.8210 | 0.114/0.117/0.093/0.063/0.117 |
+| **12** | **0.8485** | **0.7985** | **0.8370** | **0.8360** | 0.116/0.116/0.111/0.047/0.083 |
+
+The mechanism differs from the spike-rate baseline:
+
+- Inter-stage communication remains binary spikes only.
+- Each stage computes local tail-window spike-spectrum coefficients.
+- Class evidence is a geodesic/prototype score in complex spectral
+  space, with a small rate scaffold for stability.
+- The local readout credit is multiplied by forward eligibility traces;
+  no BPTT, no surrogate gradient through sampled spikes, and no
+  inter-stage backward pass are introduced.
+- Initial deep-stage saturation self-corrected during training: stage
+  3/4 rates moved from roughly 0.95/1.00 at epoch 0 to 0.047/0.083 at
+  the peak epoch.
+
+Reproducibility of the interrupted run:
+
+```bash
+cd /Users/esi/research/pub_v4/hrn2
+python3 -B experiments/train_spectral_geodesic_5stage_smnist_spiking.py \
+  --m_per_class 20 --k_fanin 12 \
+  --epochs 25 --batch 64 \
+  --train_size 10000 --test_size 2000 \
+  --threads 4 --spec_q 4 \
+  --csv results/smnist_spectral_geodesic_5stage_spiking.csv
+```
+
+## SHD spectral-geodesic follow-up
+
+Date: 2026-05-08
+
+The same spectral-geodesic readout transfers cleanly to SHD. On the
+existing 4k train / 1k test cache (`T=100`, 700 cochlear channels,
+20 classes), the 3-stage strict-spiking spectral run reached
+**76.70%** binary-spike ensemble accuracy at epoch 16:
+
+| Method | Best binary test |
+|---|---:|
+| Analog SHD 3-stage HRN-v2 | 0.684 |
+| Strict-spiking SHD 3-stage spike-rate readout | 0.606 |
+| **Strict-spiking SHD spectral-geodesic readout** | **0.767** |
+
+Peak epoch details:
+
+| Epoch | Binary ensemble | Stage 0 | Stage 1 | Stage 2 | Rates 0/1/2 |
+|---:|---:|---:|---:|---:|---|
+| **16** | **0.7670** | 0.6000 | 0.7560 | 0.7380 | 0.111/0.113/0.104 |
+
+Reproducibility:
+
+```bash
+cd /Users/esi/research/pub_v4/shd
+python3 -B experiments/train_spectral_geodesic_3stage_shd_spiking.py \
+  --m_per_class 12 --k0_fanin 48 --k1_fanin 12 --k2_fanin 12 \
+  --epochs 25 --batch 64 \
+  --train_size 4000 --test_size 1000 \
+  --threads 4 --spec_q 4 \
+  --csv results/shd_spectral_geodesic_3stage_spiking.csv
+```
 
 ## Reproducibility
 

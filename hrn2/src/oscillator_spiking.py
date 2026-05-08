@@ -78,6 +78,7 @@ def forward_with_eligibility_sparse_spiking(
     inhibit_same: float = 0.0,                   # threshold increment from same-class previous activity
     inhibit_global: float = 0.0,                 # threshold increment from global previous activity
     rec_centered: bool = False,                  # subtract each recurrent fan-in mean before weighting
+    accumulate_rate_traces: bool = True,         # keep dRho_* outputs for rate-loss trainers
 ) -> dict:
     """Spiking forward pass with eligibility traces for the rate gradient.
 
@@ -132,11 +133,20 @@ def forward_with_eligibility_sparse_spiking(
         group_counts = torch.bincount(ci, minlength=n_groups).to(device=x_seq.device, dtype=x_seq.dtype)
         group_counts = group_counts.clamp_min(1.0)
         ci_batch = ci.unsqueeze(0).expand(B, P)
+        fast_group_mean = False
+        group_size = 0
+        if P % n_groups == 0:
+            group_size = P // n_groups
+            expected = torch.repeat_interleave(
+                torch.arange(n_groups, device=x_seq.device, dtype=torch.long), group_size)
+            fast_group_mean = bool(torch.equal(ci, expected))
     else:
         ci = None
         n_groups = 0
         group_counts = None
         ci_batch = None
+        fast_group_mean = False
+        group_size = 0
 
     if accumulate_traces:
         edr_r = torch.zeros(B, P, K, dtype=x_seq.dtype, device=x_seq.device)
@@ -145,23 +155,26 @@ def forward_with_eligibility_sparse_spiking(
         ebi_r = torch.zeros_like(ebr_r); ebi_i = torch.zeros_like(ebr_r)
         eom_r = torch.zeros_like(ebr_r); eom_i = torch.zeros_like(ebr_r)
         eal_r = torch.zeros_like(ebr_r); eal_i = torch.zeros_like(ebr_r)
-        gR_d_r = torch.zeros_like(edr_r); gR_d_i = torch.zeros_like(edr_r)
-        gR_b_r = torch.zeros_like(ebr_r); gR_b_i = torch.zeros_like(ebr_r)
-        gR_om = torch.zeros_like(ebr_r); gR_al = torch.zeros_like(ebr_r)
+        if accumulate_rate_traces:
+            gR_d_r = torch.zeros_like(edr_r); gR_d_i = torch.zeros_like(edr_r)
+            gR_b_r = torch.zeros_like(ebr_r); gR_b_i = torch.zeros_like(ebr_r)
+            gR_om = torch.zeros_like(ebr_r); gR_al = torch.zeros_like(ebr_r)
         if use_rec:
             erecdr_r = torch.zeros(B, P, Krec, dtype=x_seq.dtype, device=x_seq.device)
             erecdr_i = torch.zeros_like(erecdr_r)
             erecdi_r = torch.zeros_like(erecdr_r)
             erecdi_i = torch.zeros_like(erecdr_r)
-            gR_recd_r = torch.zeros_like(erecdr_r)
-            gR_recd_i = torch.zeros_like(erecdr_r)
+            if accumulate_rate_traces:
+                gR_recd_r = torch.zeros_like(erecdr_r)
+                gR_recd_i = torch.zeros_like(erecdr_r)
         if use_top:
             etopdr_r = torch.zeros(B, P, Ktop, dtype=x_seq.dtype, device=x_seq.device)
             etopdr_i = torch.zeros_like(etopdr_r)
             etopdi_r = torch.zeros_like(etopdr_r)
             etopdi_i = torch.zeros_like(etopdr_r)
-            gR_topd_r = torch.zeros_like(etopdr_r)
-            gR_topd_i = torch.zeros_like(etopdr_r)
+            if accumulate_rate_traces:
+                gR_topd_r = torch.zeros_like(etopdr_r)
+                gR_topd_i = torch.zeros_like(etopdr_r)
         if use_spectral:
             gS_d_r_re = torch.zeros(B, P, K, Q, dtype=x_seq.dtype, device=x_seq.device)
             gS_d_r_im = torch.zeros_like(gS_d_r_re)
@@ -200,6 +213,11 @@ def forward_with_eligibility_sparse_spiking(
 
     tail_start = max(0, T - tail)
     tail_len = max(1, T - tail_start)
+    if use_spectral:
+        tail_ts = torch.arange(tail_len, dtype=x_seq.dtype, device=x_seq.device).unsqueeze(1)
+        phases = tail_ts * freqs.view(1, Q)
+        demod_re_table = torch.cos(phases)
+        demod_im_table = -torch.sin(phases)
 
     theta = threshold.unsqueeze(0)              # (1, P) for broadcast
 
@@ -304,9 +322,12 @@ def forward_with_eligibility_sparse_spiking(
             if inhibit_global != 0.0:
                 inhibition = inhibition + inhibit_global * s_prev.mean(dim=1, keepdim=True)
             if inhibit_same != 0.0 and ci is not None:
-                group_sum = torch.zeros(B, n_groups, dtype=x_seq.dtype, device=x_seq.device)
-                group_sum.scatter_add_(1, ci_batch, s_prev)
-                group_mean = group_sum / group_counts.unsqueeze(0)
+                if fast_group_mean:
+                    group_mean = s_prev.view(B, n_groups, group_size).mean(dim=2)
+                else:
+                    group_sum = torch.zeros(B, n_groups, dtype=x_seq.dtype, device=x_seq.device)
+                    group_sum.scatter_add_(1, ci_batch, s_prev)
+                    group_mean = group_sum / group_counts.unsqueeze(0)
                 inhibition = inhibition + inhibit_same * group_mean[:, ci]
         u = beta * (amp2 - theta - inhibition)
         p_t = torch.sigmoid(u)                  # (B, P) spike rate at this step
@@ -329,9 +350,8 @@ def forward_with_eligibility_sparse_spiking(
             spike_count = spike_count + s_t      # binary count for diagnostics
             if use_spectral:
                 tail_t = t - tail_start
-                phase = freqs * float(tail_t)
-                demod_re = torch.cos(phase).view(1, 1, Q)
-                demod_im = -torch.sin(phase).view(1, 1, Q)
+                demod_re = demod_re_table[tail_t].view(1, 1, Q)
+                demod_im = demod_im_table[tail_t].view(1, 1, Q)
                 spec_re_sum = spec_re_sum + p_t.unsqueeze(-1) * demod_re
                 spec_im_sum = spec_im_sum + p_t.unsqueeze(-1) * demod_im
                 spike_spec_re_sum = spike_spec_re_sum + s_t.unsqueeze(-1) * demod_re
@@ -346,22 +366,25 @@ def forward_with_eligibility_sparse_spiking(
                 dp_b_i = sig_prime * 2.0 * (z_r * ebi_r + z_i * ebi_i)
                 dp_om = sig_prime * 2.0 * (z_r * eom_r + z_i * eom_i)
                 dp_al = sig_prime * 2.0 * (z_r * eal_r + z_i * eal_i)
-                gR_d_r = gR_d_r + dp_d_r
-                gR_d_i = gR_d_i + dp_d_i
-                gR_b_r = gR_b_r + dp_b_r
-                gR_b_i = gR_b_i + dp_b_i
-                gR_om = gR_om + dp_om
-                gR_al = gR_al + dp_al
+                if accumulate_rate_traces:
+                    gR_d_r = gR_d_r + dp_d_r
+                    gR_d_i = gR_d_i + dp_d_i
+                    gR_b_r = gR_b_r + dp_b_r
+                    gR_b_i = gR_b_i + dp_b_i
+                    gR_om = gR_om + dp_om
+                    gR_al = gR_al + dp_al
                 if use_rec:
                     dp_recd_r = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * erecdr_r + z_i.unsqueeze(-1) * erecdr_i)
                     dp_recd_i = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * erecdi_r + z_i.unsqueeze(-1) * erecdi_i)
-                    gR_recd_r = gR_recd_r + dp_recd_r
-                    gR_recd_i = gR_recd_i + dp_recd_i
+                    if accumulate_rate_traces:
+                        gR_recd_r = gR_recd_r + dp_recd_r
+                        gR_recd_i = gR_recd_i + dp_recd_i
                 if use_top:
                     dp_topd_r = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * etopdr_r + z_i.unsqueeze(-1) * etopdr_i)
                     dp_topd_i = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * etopdi_r + z_i.unsqueeze(-1) * etopdi_i)
-                    gR_topd_r = gR_topd_r + dp_topd_r
-                    gR_topd_i = gR_topd_i + dp_topd_i
+                    if accumulate_rate_traces:
+                        gR_topd_r = gR_topd_r + dp_topd_r
+                        gR_topd_i = gR_topd_i + dp_topd_i
                 if use_spectral:
                     gS_d_r_re = gS_d_r_re + dp_d_r.unsqueeze(-1) * demod_re
                     gS_d_r_im = gS_d_r_im + dp_d_r.unsqueeze(-1) * demod_im
@@ -411,18 +434,19 @@ def forward_with_eligibility_sparse_spiking(
     if save_spike_seq:
         out["spike_seq"] = spike_seq
     if accumulate_traces:
-        out["dRho_d_r"] = gR_d_r / tail_len
-        out["dRho_d_i"] = gR_d_i / tail_len
-        out["dRho_b_r"] = gR_b_r / tail_len
-        out["dRho_b_i"] = gR_b_i / tail_len
-        out["dRho_omega_raw"] = gR_om / tail_len
-        if use_rec:
-            out["dRho_rec_d_r"] = gR_recd_r / tail_len
-            out["dRho_rec_d_i"] = gR_recd_i / tail_len
-        if use_top:
-            out["dRho_top_d_r"] = gR_topd_r / tail_len
-            out["dRho_top_d_i"] = gR_topd_i / tail_len
-        out["dRho_alpha_raw"] = gR_al / tail_len
+        if accumulate_rate_traces:
+            out["dRho_d_r"] = gR_d_r / tail_len
+            out["dRho_d_i"] = gR_d_i / tail_len
+            out["dRho_b_r"] = gR_b_r / tail_len
+            out["dRho_b_i"] = gR_b_i / tail_len
+            out["dRho_omega_raw"] = gR_om / tail_len
+            if use_rec:
+                out["dRho_rec_d_r"] = gR_recd_r / tail_len
+                out["dRho_rec_d_i"] = gR_recd_i / tail_len
+            if use_top:
+                out["dRho_top_d_r"] = gR_topd_r / tail_len
+                out["dRho_top_d_i"] = gR_topd_i / tail_len
+            out["dRho_alpha_raw"] = gR_al / tail_len
         if use_spectral:
             out["dSpec_d_r_re"] = gS_d_r_re / tail_len
             out["dSpec_d_r_im"] = gS_d_r_im / tail_len
@@ -447,3 +471,287 @@ def forward_with_eligibility_sparse_spiking(
                 out["dSpec_top_d_i_re"] = gS_topd_i_re / tail_len
                 out["dSpec_top_d_i_im"] = gS_topd_i_im / tail_len
     return out
+
+
+def contracted_spectral_grad_sparse_spiking(
+    x_seq: torch.Tensor,                    # (B, T, M_in)
+    in_idx: torch.Tensor,                   # (P, K)
+    params: OscillatorParams,
+    cfg: OscillatorConfig,
+    tail: int,
+    threshold: torch.Tensor,
+    spectral_freqs: torch.Tensor,           # (Q,)
+    spectral_credit_re: torch.Tensor,       # (B, P, Q) = dL/d spec_re
+    spectral_credit_im: torch.Tensor,       # (B, P, Q) = dL/d spec_im
+    beta: float = 10.0,
+    replay_spike_seq: torch.Tensor | None = None,  # (B, T, P), keeps pass exactly spike-local
+    kappa_reset: float = 0.0,
+    rec_idx: torch.Tensor | None = None,
+    rec_params: RecurrentParams | None = None,
+    class_index: torch.Tensor | None = None,
+    inhibit_same: float = 0.0,
+    inhibit_global: float = 0.0,
+    rec_centered: bool = False,
+) -> dict:
+    """Contract dL/dA with dA/dtheta inside the eligibility pass.
+
+    This is mathematically the same gradient as materializing all
+    `dSpec_*` tensors and contracting them in the trainer:
+
+        dL/dtheta = sum_{b,p,q} dL/dA_{b,p,q} dA_{b,p,q}/dtheta.
+
+    It is faster because it never stores `(B, P, K, Q)` spectral
+    derivative tensors. `replay_spike_seq` should be the spike train
+    from the feature pass, so recurrence/inhibition/reset see the same
+    local sampled spikes as the readout that produced the credit.
+    """
+    B, T, M_in = x_seq.shape
+    P, K = in_idx.shape
+    assert params.d_r.shape == (P, K), f"expected ({P}, {K}), got {params.d_r.shape}"
+    assert threshold.shape == (P,), f"threshold shape {threshold.shape} != ({P},)"
+    Q = int(spectral_freqs.numel())
+    assert spectral_credit_re.shape == (B, P, Q)
+    assert spectral_credit_im.shape == (B, P, Q)
+    if replay_spike_seq is not None:
+        assert replay_spike_seq.shape == (B, T, P)
+
+    om = omega_of(params, cfg)
+    al = alpha_of(params, cfg)
+    cos_w = torch.cos(om)
+    sin_w = torch.sin(om)
+    rot_r = al * cos_w
+    rot_i = al * sin_w
+    sig_o = torch.sigmoid(params.omega_raw)
+    sig_a = torch.sigmoid(params.alpha_raw)
+    d_omega_d_raw = (cfg.omega_max - cfg.omega_min) * sig_o * (1.0 - sig_o)
+    d_alpha_d_raw = (cfg.alpha_max - cfg.alpha_min) * sig_a * (1.0 - sig_a)
+
+    z_r = torch.zeros(B, P, dtype=x_seq.dtype, device=x_seq.device)
+    z_i = torch.zeros_like(z_r)
+    s_prev = torch.zeros(B, P, dtype=x_seq.dtype, device=x_seq.device)
+
+    use_rec = (rec_idx is not None) and (rec_params is not None)
+    if use_rec:
+        Krec = rec_idx.shape[1]
+        assert rec_params.d_r.shape == (P, Krec), f"rec_params.d_r shape {rec_params.d_r.shape} != ({P},{Krec})"
+
+    use_inhibition = (inhibit_same != 0.0 or inhibit_global != 0.0)
+    if use_inhibition and class_index is not None:
+        ci = class_index.to(device=x_seq.device, dtype=torch.long)
+        n_groups = int(ci.max().item()) + 1
+        group_counts = torch.bincount(ci, minlength=n_groups).to(device=x_seq.device, dtype=x_seq.dtype)
+        group_counts = group_counts.clamp_min(1.0)
+        ci_batch = ci.unsqueeze(0).expand(B, P)
+        fast_group_mean = False
+        group_size = 0
+        if P % n_groups == 0:
+            group_size = P // n_groups
+            expected = torch.repeat_interleave(
+                torch.arange(n_groups, device=x_seq.device, dtype=torch.long), group_size)
+            fast_group_mean = bool(torch.equal(ci, expected))
+    else:
+        ci = None
+        n_groups = 0
+        group_counts = None
+        ci_batch = None
+        fast_group_mean = False
+        group_size = 0
+
+    edr_r = torch.zeros(B, P, K, dtype=x_seq.dtype, device=x_seq.device)
+    edr_i = torch.zeros_like(edr_r)
+    edi_r = torch.zeros_like(edr_r)
+    edi_i = torch.zeros_like(edr_r)
+    ebr_r = torch.zeros(B, P, dtype=x_seq.dtype, device=x_seq.device)
+    ebr_i = torch.zeros_like(ebr_r)
+    ebi_r = torch.zeros_like(ebr_r)
+    ebi_i = torch.zeros_like(ebr_r)
+    eom_r = torch.zeros_like(ebr_r)
+    eom_i = torch.zeros_like(ebr_r)
+    eal_r = torch.zeros_like(ebr_r)
+    eal_i = torch.zeros_like(ebr_r)
+    if use_rec:
+        erecdr_r = torch.zeros(B, P, Krec, dtype=x_seq.dtype, device=x_seq.device)
+        erecdr_i = torch.zeros_like(erecdr_r)
+        erecdi_r = torch.zeros_like(erecdr_r)
+        erecdi_i = torch.zeros_like(erecdr_r)
+
+    g_d_r = torch.zeros_like(params.d_r)
+    g_d_i = torch.zeros_like(params.d_i)
+    g_b_r = torch.zeros_like(params.b_r)
+    g_b_i = torch.zeros_like(params.b_i)
+    g_om = torch.zeros_like(params.omega_raw)
+    g_al = torch.zeros_like(params.alpha_raw)
+    sens_d_r = torch.zeros_like(params.d_r)
+    sens_d_i = torch.zeros_like(params.d_i)
+    sens_b_r = torch.zeros_like(params.b_r)
+    sens_b_i = torch.zeros_like(params.b_i)
+    sens_om = torch.zeros_like(params.omega_raw)
+    sens_al = torch.zeros_like(params.alpha_raw)
+    if use_rec:
+        g_rec_d_r = torch.zeros_like(rec_params.d_r)
+        g_rec_d_i = torch.zeros_like(rec_params.d_i)
+        sens_rec_d_r = torch.zeros_like(rec_params.d_r)
+        sens_rec_d_i = torch.zeros_like(rec_params.d_i)
+
+    tail_start = max(0, T - tail)
+    tail_len = max(1, T - tail_start)
+    theta = threshold.unsqueeze(0)
+    freqs = spectral_freqs.to(device=x_seq.device, dtype=x_seq.dtype)
+    tail_ts = torch.arange(tail_len, dtype=x_seq.dtype, device=x_seq.device).unsqueeze(1)
+    phases = tail_ts * freqs.view(1, Q)
+    demod_re_table = torch.cos(phases)
+    demod_im_table = -torch.sin(phases)
+    tail_scale = 1.0 / float(tail_len)
+    # This Fisher statistic is the same local Jacobian-norm idea as the
+    # materialized path, but accumulated without storing per-q tensors.
+    sens_scale = 1.0 / float(max(1, B) * tail_len * tail_len)
+
+    for t in range(T):
+        x_t = x_seq[:, t]
+        gathered = x_t[:, in_idx]
+        prev_r = z_r
+        prev_i = z_i
+
+        drive_r = (gathered * params.d_r.unsqueeze(0)).sum(dim=2) + params.b_r.unsqueeze(0)
+        drive_i = (gathered * params.d_i.unsqueeze(0)).sum(dim=2) + params.b_i.unsqueeze(0)
+
+        if use_rec:
+            gathered_rec = s_prev[:, rec_idx]
+            if rec_centered:
+                gathered_rec = gathered_rec - gathered_rec.mean(dim=2, keepdim=True)
+            drive_r = drive_r + (gathered_rec * rec_params.d_r.unsqueeze(0)).sum(dim=2)
+            drive_i = drive_i + (gathered_rec * rec_params.d_i.unsqueeze(0)).sum(dim=2)
+
+        z_r_next = rot_r.unsqueeze(0) * prev_r - rot_i.unsqueeze(0) * prev_i + drive_r
+        z_i_next = rot_i.unsqueeze(0) * prev_r + rot_r.unsqueeze(0) * prev_i + drive_i
+        if cfg.z_clip > 0:
+            z_r_next = z_r_next.clamp(-cfg.z_clip, cfg.z_clip)
+            z_i_next = z_i_next.clamp(-cfg.z_clip, cfg.z_clip)
+
+        if kappa_reset > 0:
+            reset_factor = 1.0 - kappa_reset * s_prev
+            rf3 = reset_factor.unsqueeze(-1)
+            edr_r = edr_r * rf3
+            edr_i = edr_i * rf3
+            edi_r = edi_r * rf3
+            edi_i = edi_i * rf3
+            ebr_r = ebr_r * reset_factor
+            ebr_i = ebr_i * reset_factor
+            ebi_r = ebi_r * reset_factor
+            ebi_i = ebi_i * reset_factor
+            eom_r = eom_r * reset_factor
+            eom_i = eom_i * reset_factor
+            eal_r = eal_r * reset_factor
+            eal_i = eal_i * reset_factor
+            if use_rec:
+                erecdr_r = erecdr_r * rf3
+                erecdr_i = erecdr_i * rf3
+                erecdi_r = erecdi_r * rf3
+                erecdi_i = erecdi_i * rf3
+
+        edr_r_new = rot_r.view(1, P, 1) * edr_r - rot_i.view(1, P, 1) * edr_i + gathered
+        edr_i_new = rot_i.view(1, P, 1) * edr_r + rot_r.view(1, P, 1) * edr_i
+        edi_r_new = rot_r.view(1, P, 1) * edi_r - rot_i.view(1, P, 1) * edi_i
+        edi_i_new = rot_i.view(1, P, 1) * edi_r + rot_r.view(1, P, 1) * edi_i + gathered
+        edr_r, edr_i = edr_r_new, edr_i_new
+        edi_r, edi_i = edi_r_new, edi_i_new
+
+        ebr_r_new = rot_r.unsqueeze(0) * ebr_r - rot_i.unsqueeze(0) * ebr_i + 1.0
+        ebr_i_new = rot_i.unsqueeze(0) * ebr_r + rot_r.unsqueeze(0) * ebr_i
+        ebi_r_new = rot_r.unsqueeze(0) * ebi_r - rot_i.unsqueeze(0) * ebi_i
+        ebi_i_new = rot_i.unsqueeze(0) * ebi_r + rot_r.unsqueeze(0) * ebi_i + 1.0
+        ebr_r, ebr_i = ebr_r_new, ebr_i_new
+        ebi_r, ebi_i = ebi_r_new, ebi_i_new
+
+        if use_rec:
+            erecdr_r_new = rot_r.view(1, P, 1) * erecdr_r - rot_i.view(1, P, 1) * erecdr_i + gathered_rec
+            erecdr_i_new = rot_i.view(1, P, 1) * erecdr_r + rot_r.view(1, P, 1) * erecdr_i
+            erecdi_r_new = rot_r.view(1, P, 1) * erecdi_r - rot_i.view(1, P, 1) * erecdi_i
+            erecdi_i_new = rot_i.view(1, P, 1) * erecdi_r + rot_r.view(1, P, 1) * erecdi_i + gathered_rec
+            erecdr_r, erecdr_i = erecdr_r_new, erecdr_i_new
+            erecdi_r, erecdi_i = erecdi_r_new, erecdi_i_new
+
+        rz_r = cos_w.unsqueeze(0) * prev_r - sin_w.unsqueeze(0) * prev_i
+        rz_i = sin_w.unsqueeze(0) * prev_r + cos_w.unsqueeze(0) * prev_i
+        eom_r_new = rot_r.unsqueeze(0) * eom_r - rot_i.unsqueeze(0) * eom_i \
+                    - al.unsqueeze(0) * rz_i * d_omega_d_raw.unsqueeze(0)
+        eom_i_new = rot_i.unsqueeze(0) * eom_r + rot_r.unsqueeze(0) * eom_i \
+                    + al.unsqueeze(0) * rz_r * d_omega_d_raw.unsqueeze(0)
+        eom_r, eom_i = eom_r_new, eom_i_new
+        eal_r_new = rot_r.unsqueeze(0) * eal_r - rot_i.unsqueeze(0) * eal_i \
+                    + rz_r * d_alpha_d_raw.unsqueeze(0)
+        eal_i_new = rot_i.unsqueeze(0) * eal_r + rot_r.unsqueeze(0) * eal_i \
+                    + rz_i * d_alpha_d_raw.unsqueeze(0)
+        eal_r, eal_i = eal_r_new, eal_i_new
+
+        z_r = z_r_next
+        z_i = z_i_next
+
+        amp2 = z_r.square() + z_i.square()
+        inhibition = 0.0
+        if use_inhibition:
+            if inhibit_global != 0.0:
+                inhibition = inhibition + inhibit_global * s_prev.mean(dim=1, keepdim=True)
+            if inhibit_same != 0.0 and ci is not None:
+                if fast_group_mean:
+                    group_mean = s_prev.view(B, n_groups, group_size).mean(dim=2)
+                else:
+                    group_sum = torch.zeros(B, n_groups, dtype=x_seq.dtype, device=x_seq.device)
+                    group_sum.scatter_add_(1, ci_batch, s_prev)
+                    group_mean = group_sum / group_counts.unsqueeze(0)
+                inhibition = inhibition + inhibit_same * group_mean[:, ci]
+        p_t = torch.sigmoid(beta * (amp2 - theta - inhibition))
+
+        if replay_spike_seq is not None:
+            s_t = replay_spike_seq[:, t]
+        else:
+            s_t = p_t
+
+        if t >= tail_start:
+            tail_t = t - tail_start
+            demod_re = demod_re_table[tail_t].view(1, 1, Q)
+            demod_im = demod_im_table[tail_t].view(1, 1, Q)
+            credit_t = (spectral_credit_re * demod_re + spectral_credit_im * demod_im).sum(dim=2) * tail_scale
+
+            sig_prime = p_t * (1.0 - p_t) * beta
+            dp_d_r = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * edr_r + z_i.unsqueeze(-1) * edr_i)
+            dp_d_i = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * edi_r + z_i.unsqueeze(-1) * edi_i)
+            dp_b_r = sig_prime * 2.0 * (z_r * ebr_r + z_i * ebr_i)
+            dp_b_i = sig_prime * 2.0 * (z_r * ebi_r + z_i * ebi_i)
+            dp_om = sig_prime * 2.0 * (z_r * eom_r + z_i * eom_i)
+            dp_al = sig_prime * 2.0 * (z_r * eal_r + z_i * eal_i)
+
+            g_d_r = g_d_r + (credit_t.unsqueeze(-1) * dp_d_r).sum(dim=0)
+            g_d_i = g_d_i + (credit_t.unsqueeze(-1) * dp_d_i).sum(dim=0)
+            g_b_r = g_b_r + (credit_t * dp_b_r).sum(dim=0)
+            g_b_i = g_b_i + (credit_t * dp_b_i).sum(dim=0)
+            g_om = g_om + (credit_t * dp_om).sum(dim=0)
+            g_al = g_al + (credit_t * dp_al).sum(dim=0)
+
+            sens_d_r = sens_d_r + dp_d_r.square().sum(dim=0) * sens_scale
+            sens_d_i = sens_d_i + dp_d_i.square().sum(dim=0) * sens_scale
+            sens_b_r = sens_b_r + dp_b_r.square().sum(dim=0) * sens_scale
+            sens_b_i = sens_b_i + dp_b_i.square().sum(dim=0) * sens_scale
+            sens_om = sens_om + dp_om.square().sum(dim=0) * sens_scale
+            sens_al = sens_al + dp_al.square().sum(dim=0) * sens_scale
+
+            if use_rec:
+                dp_recd_r = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * erecdr_r + z_i.unsqueeze(-1) * erecdr_i)
+                dp_recd_i = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * erecdi_r + z_i.unsqueeze(-1) * erecdi_i)
+                g_rec_d_r = g_rec_d_r + (credit_t.unsqueeze(-1) * dp_recd_r).sum(dim=0)
+                g_rec_d_i = g_rec_d_i + (credit_t.unsqueeze(-1) * dp_recd_i).sum(dim=0)
+                sens_rec_d_r = sens_rec_d_r + dp_recd_r.square().sum(dim=0) * sens_scale
+                sens_rec_d_i = sens_rec_d_i + dp_recd_i.square().sum(dim=0) * sens_scale
+
+        if kappa_reset > 0:
+            keep = 1.0 - kappa_reset * s_t
+            z_r = z_r * keep
+            z_i = z_i * keep
+        s_prev = s_t
+
+    grads = [g_d_r, g_d_i, g_b_r, g_b_i, g_om, g_al]
+    sens = [sens_d_r, sens_d_i, sens_b_r, sens_b_i, sens_om, sens_al]
+    if use_rec:
+        grads.extend([g_rec_d_r, g_rec_d_i])
+        sens.extend([sens_rec_d_r, sens_rec_d_i])
+    return {"grads": grads, "sens": sens}

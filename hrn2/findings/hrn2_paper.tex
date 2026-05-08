@@ -75,6 +75,11 @@ spiking HRN-v2 reaches \textbf{81.35\%} on the same SMNIST 10k
 benchmark, and \textbf{60.6\%} on Spiking Heidelberg Digits (SHD,
 20-class spoken-digit, 4k train).
 \end{enumerate}
+A subsequent strict-spiking spectral-geodesic readout, still using
+binary inter-stage spikes and local eligibility traces, reached
+\textbf{84.85\%} on SMNIST 10k before the run was interrupted for
+implementation optimisation, and \textbf{76.7\%} on the SHD 4k/1k
+cache.
 The strict-spiking version inherits all the bio-plausibility
 constraints of the analog version and additionally restricts
 inter-neuron messages to a single binary spike per timestep. The
@@ -976,6 +981,53 @@ empirically validating that the gradient flowing through the smooth
 $\rho_{\ell,i}$ is consistent with the actual deployed binary-spike
 network.
 
+\subsection{SMNIST spectral-geodesic spiking readout: 84.85\%}
+
+As a follow-up to the spike-rate readout, we tested a strictly
+spiking spectral-geodesic readout.  Each stage maintains local
+tail-window spike-spectrum coefficients
+\[
+A_{\ell,i}^{(q)} =
+  \frac{1}{T_\ell}\sum_{t \in \mathrm{tail}_\ell}
+  p_{\ell,i}(t)\,\exp(-\mathrm{i}\nu_q t),
+\]
+with the binary-sampled analogue used for deployment-time evaluation.
+Class evidence is computed by distance to complex spectral prototypes
+on the normalized complex sphere, with a small class-pool rate scaffold
+for stability.  The readout credit $\partial L/\partial A_{\ell,i}^{(q)}$
+is local to the stage and is multiplied by forward eligibility traces;
+there is still no BPTT, no surrogate gradient through sampled spikes,
+and no inter-stage backward pass.
+
+The first long run used the same SMNIST 10k/2k protocol, 5 stages,
+$M_\ell=20$, class-aligned fan-in $K_\ell=12$, no reset, and no
+intra-stage recurrence.  It was interrupted after epoch 13 to optimise
+the implementation, but reached a best binary-spike ensemble accuracy
+of \textbf{84.85\%} at epoch 12:
+
+\begin{center}
+\captionsetup{type=table}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Stage & Stage-alone binary test acc & Tail spike rate at peak \\
+\midrule
+0 & 0.434 & 0.116 \\
+1 & 0.651 & 0.116 \\
+2 & 0.799 & 0.111 \\
+3 & 0.837 & 0.047 \\
+4 & 0.836 & 0.083 \\
+\midrule
+\textbf{Ensemble} & \textbf{0.8485} & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This is a +3.5pp improvement over the 81.35\% spike-rate baseline
+without relaxing the strict-spiking constraint.  The run also showed
+that the early deep-stage saturation can self-correct under the
+spectral-geodesic local credit: stage 3/4 rates moved from roughly
+0.95/1.00 at epoch 0 to 0.047/0.083 at the peak epoch.
+
 \subsection{Per-stage capacity scaling: M does not help}
 
 To check whether per-stage capacity matters at fixed depth, we ran
@@ -1004,6 +1056,40 @@ versus 0.684 for the analog variant on the same architecture. The
 literature numbers (~83--86\%) use the full 8156-sample training
 set with augmentation; tonight's 4k-no-aug result is in the
 expected range for this data scale.
+
+\subsection{SHD spectral-geodesic readout: 76.7\% test accuracy}
+
+We next ported the strict-spiking spectral-geodesic readout to SHD.
+The architecture matches the SHD strict-spiking baseline above:
+3 stages, $M_\ell=12$ neurons per class pool, random sparse cochlear
+fan-in $K_0=48$, class-aligned inter-stage fan-in $K_1=K_2=12$, and
+binary inter-stage spikes only.  Each stage computes local spike-
+spectrum coefficients over its tail window and classifies by distance
+to complex spectral prototypes; the readout credit is again multiplied
+by forward eligibility traces.
+
+The best binary-spike ensemble accuracy was \textbf{76.7\%} at epoch
+16, exceeding both the strict-spiking spike-rate baseline (60.6\%) and
+the previous analog SHD baseline (68.4\%) on the same cache.
+
+\begin{center}
+\captionsetup{type=table}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Stage & Stage-alone binary test acc & Tail spike rate at peak \\
+\midrule
+0 & 0.600 & 0.111 \\
+1 & 0.756 & 0.113 \\
+2 & 0.738 & 0.104 \\
+\midrule
+\textbf{Ensemble} & \textbf{0.767} & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This result is the cleanest cross-dataset evidence that spectral
+organization of spike trajectories is not merely a Sequential-MNIST
+special case.
 
 \subsection{Substrate plasticity: $\omega$ moves at slower stages}
 
@@ -1100,6 +1186,11 @@ $81.35\%$ on SMNIST 10k with a 5-stage hierarchy, 25 training
 epochs with two LR halvings. The $\sigma'$ that mediates gradient
 flow is the natural derivative of the Bernoulli expected rate, not
 an ad-hoc smoothing.
+\item \textbf{Strict-spiking spectral-geodesic readout}:
+$84.85\%$ on SMNIST 10k before interruption at epoch 13, using
+local spike-spectrum prototypes and the same forward-eligibility
+learning constraint; the same readout reaches $76.7\%$ on the
+SHD 4k/1k cache.
 \end{itemize}
 
 The recursive-envelope architecture is essential to both variants:
@@ -1119,6 +1210,9 @@ substrate.
 \item Naive intra-stage recurrence destabilises deep, high-$\alpha$
 stages.
 \item Top-down feedback needs staged training to be useful.
+\item Spectral organization of spike trajectories improves the
+strict-spiking result without changing the binary communication
+constraint.
 \end{enumerate}
 
 These lessons would have been hard to spot without making the
@@ -1126,7 +1220,8 @@ spike-emission, reset, and recurrence machinery explicit in the
 local rule (\ref{eq:final-rule-spike}) and (\ref{eq:trace-with-reset}).
 The principal positive result --- a strict-spiking SMNIST classifier
 trained entirely by forward eligibility traces, with binary
-inter-neuron synapses, reaching $81.35\%$ --- closes a long-standing
+inter-neuron synapses, reaching $81.35\%$ with spike-rate readout and
+$84.85\%$ with a spectral-geodesic readout --- closes a long-standing
 gap between continuous-amplitude resonator networks and the spiking
 neural-network literature.
 

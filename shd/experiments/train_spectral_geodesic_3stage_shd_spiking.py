@@ -1,19 +1,16 @@
-"""Spectral-geodesic 5-stage SPIKING HRN on SMNIST.
+"""Spectral-geodesic 3-stage SPIKING HRN on SHD.
 
-This is the strict-spiking upgrade path:
+This ports the strict-spiking spectral-geodesic readout from SMNIST to
+SHD while keeping the existing SHD architecture choices:
 
-* binary spikes are the only inter-stage signal;
-* each stage keeps local tail-window spike-spectrum demodulators;
-* per-stage class evidence is a geodesic/prototype score in complex
-  spectral space, with a small class-pool rate scaffold for stability;
-* oscillator parameters still learn only through forward eligibility
-  traces, no BPTT and no surrogate gradient through sampled spikes;
-* optional explicit inhibition and centered recurrence are provided to
-  make recurrent transport stable instead of energy-injecting.
+* stage 0 receives random sparse fan-in from the 700 cochlear channels;
+* stages 1/2 receive class-aligned binary spikes from the previous stage;
+* each stage keeps local spike-spectrum demodulators over its tail;
+* class evidence is geodesic distance to complex spectral prototypes;
+* oscillator parameters update by local forward eligibility traces only.
 
-The local readout uses torch autograd only on detached spectral features
-to obtain the per-neuron local credit dL/dA. That credit is then
-multiplied by hand-assembled forward eligibility derivatives dA/dtheta.
+No BPTT, no surrogate gradient through sampled spikes, no inter-stage
+backward pass. Binary spikes are the only inter-stage signal.
 """
 
 from __future__ import annotations
@@ -25,19 +22,17 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "hrn2" / "src"))        # optimized spectral spiking kernel
+sys.path.insert(1, str(Path(__file__).resolve().parent.parent / "src"))
 
 import torch
 import torch.nn.functional as F
 
 from oscillator import OscillatorConfig, init_params, omega_of
-from oscillator_spiking import (
-    forward_with_eligibility_sparse_spiking,
-    contracted_spectral_grad_sparse_spiking,
-    init_recurrent_params,
-)
+from oscillator_spiking import forward_with_eligibility_sparse_spiking
 from optim import Adam
-from smnist_data import load_smnist
+from shd_data import load_shd, N_CLASSES
 
 
 def class_pool_logits(rho, class_index, classes, temperature):
@@ -45,6 +40,13 @@ def class_pool_logits(rho, class_index, classes, temperature):
     for c in range(classes):
         logits[:, c] = rho[:, class_index == c].mean(dim=1)
     return (logits - logits.mean(dim=1, keepdim=True)) * temperature
+
+
+def make_stage0_random_fanin(P, F_in, K, gen):
+    in_idx = torch.zeros(P, K, dtype=torch.long)
+    for i in range(P):
+        in_idx[i] = torch.randperm(F_in, generator=gen)[:K]
+    return in_idx
 
 
 def make_class_aligned_fanin(classes, m_curr_per_class, m_prev_per_class, K, gen):
@@ -63,20 +65,11 @@ def make_class_aligned_fanin(classes, m_curr_per_class, m_prev_per_class, K, gen
     return in_idx
 
 
-def make_intra_stage_rec_idx(P, K_rec, gen):
-    in_idx = torch.zeros(P, K_rec, dtype=torch.long)
-    for i in range(P):
-        candidates = torch.cat([torch.arange(i), torch.arange(i + 1, P)])
-        in_idx[i] = candidates[torch.randperm(len(candidates), generator=gen)[:K_rec]]
-    return in_idx
-
-
 def make_spectral_freqs(omega_min, omega_max, tail, q):
-    """Include q=0 rate and q-1 log-spaced tail-envelope frequencies."""
     if q <= 1:
         return torch.zeros(1)
     lo = max(float(omega_min), 2.0 * math.pi / max(float(tail), 1.0))
-    hi = min(float(omega_max), 0.35)
+    hi = min(float(omega_max), 0.80)
     if hi < lo:
         hi = lo
     freqs = torch.zeros(q)
@@ -111,12 +104,10 @@ def geodesic_logits_from_spec(spec_re, spec_im, proto_re, proto_im, tau, tempera
     h_re, h_im = normalize_complex_batch(spec_re, spec_im)
     m_re = proto_re.to(device=spec_re.device, dtype=spec_re.dtype)
     m_im = proto_im.to(device=spec_re.device, dtype=spec_re.dtype)
-    # Complex inner product <h, m>; use magnitude for CP^{n-1} phase invariance.
     inner_re = torch.einsum("bpq,cpq->bc", h_re, m_re) + torch.einsum("bpq,cpq->bc", h_im, m_im)
     inner_im = torch.einsum("bpq,cpq->bc", h_im, m_re) - torch.einsum("bpq,cpq->bc", h_re, m_im)
     sim = (inner_re.square() + inner_im.square()).sqrt().clamp(0.0, 1.0 - 1e-5)
-    dist2 = torch.acos(sim).square()
-    return (-dist2 / tau) * temperature
+    return (-torch.acos(sim).square() / tau) * temperature
 
 
 def stage_logits_from_spec(spec_re, spec_im, proto_re, proto_im, class_index,
@@ -126,20 +117,6 @@ def stage_logits_from_spec(spec_re, spec_im, proto_re, proto_im, class_index,
         logits = logits + rate_aux_weight * class_pool_logits(
             spec_re[:, :, 0], class_index, classes, temperature)
     return logits
-
-
-def update_prototypes(proto_re, proto_im, spec_re, spec_im, labels, lr):
-    if lr <= 0:
-        return
-    with torch.no_grad():
-        h_re, h_im = normalize_complex_batch(spec_re.detach(), spec_im.detach())
-        for c in labels.unique():
-            mask = labels == c
-            if bool(mask.any()):
-                ci = int(c.item())
-                proto_re[ci].mul_(1.0 - lr).add_(lr * h_re[mask].mean(dim=0).cpu())
-                proto_im[ci].mul_(1.0 - lr).add_(lr * h_im[mask].mean(dim=0).cpu())
-        normalize_complex_proto_(proto_re, proto_im)
 
 
 def readout_credit(out, proto_re, proto_im, yb, class_index, classes, tau,
@@ -156,10 +133,10 @@ def readout_credit(out, proto_re, proto_im, yb, class_index, classes, tau,
     return logits.detach(), d_re.detach(), d_im.detach()
 
 
-def spectral_param_grads(out, d_re, d_im, use_rec):
+def spectral_param_grads(out, d_re, d_im):
     d_re_k = d_re.unsqueeze(2)
     d_im_k = d_im.unsqueeze(2)
-    grads = [
+    return [
         (d_re_k * out["dSpec_d_r_re"] + d_im_k * out["dSpec_d_r_im"]).sum(dim=(0, 3)),
         (d_re_k * out["dSpec_d_i_re"] + d_im_k * out["dSpec_d_i_im"]).sum(dim=(0, 3)),
         (d_re * out["dSpec_b_r_re"] + d_im * out["dSpec_b_r_im"]).sum(dim=(0, 2)),
@@ -167,16 +144,10 @@ def spectral_param_grads(out, d_re, d_im, use_rec):
         (d_re * out["dSpec_omega_raw_re"] + d_im * out["dSpec_omega_raw_im"]).sum(dim=(0, 2)),
         (d_re * out["dSpec_alpha_raw_re"] + d_im * out["dSpec_alpha_raw_im"]).sum(dim=(0, 2)),
     ]
-    if use_rec:
-        grads.append(
-            (d_re_k * out["dSpec_rec_d_r_re"] + d_im_k * out["dSpec_rec_d_r_im"]).sum(dim=(0, 3)))
-        grads.append(
-            (d_re_k * out["dSpec_rec_d_i_re"] + d_im_k * out["dSpec_rec_d_i_im"]).sum(dim=(0, 3)))
-    return grads
 
 
-def spectral_sensitivities(out, use_rec):
-    sens = [
+def spectral_sensitivities(out):
+    return [
         (out["dSpec_d_r_re"].square() + out["dSpec_d_r_im"].square()).mean(dim=(0, 3)),
         (out["dSpec_d_i_re"].square() + out["dSpec_d_i_im"].square()).mean(dim=(0, 3)),
         (out["dSpec_b_r_re"].square() + out["dSpec_b_r_im"].square()).mean(dim=(0, 2)),
@@ -184,12 +155,6 @@ def spectral_sensitivities(out, use_rec):
         (out["dSpec_omega_raw_re"].square() + out["dSpec_omega_raw_im"].square()).mean(dim=(0, 2)),
         (out["dSpec_alpha_raw_re"].square() + out["dSpec_alpha_raw_im"].square()).mean(dim=(0, 2)),
     ]
-    if use_rec:
-        sens.append(
-            (out["dSpec_rec_d_r_re"].square() + out["dSpec_rec_d_r_im"].square()).mean(dim=(0, 3)))
-        sens.append(
-            (out["dSpec_rec_d_i_re"].square() + out["dSpec_rec_d_i_im"].square()).mean(dim=(0, 3)))
-    return sens
 
 
 def fisher_precondition(grads, sens, fisher, beta, eps):
@@ -202,22 +167,44 @@ def fisher_precondition(grads, sens, fisher, beta, eps):
     return out
 
 
+def update_prototypes(proto_re, proto_im, spec_re, spec_im, labels, lr):
+    if lr <= 0:
+        return
+    with torch.no_grad():
+        h_re, h_im = normalize_complex_batch(spec_re.detach(), spec_im.detach())
+        for c in labels.unique():
+            mask = labels == c
+            if bool(mask.any()):
+                ci = int(c.item())
+                proto_re[ci].mul_(1.0 - lr).add_(lr * h_re[mask].mean(dim=0).cpu())
+                proto_im[ci].mul_(1.0 - lr).add_(lr * h_im[mask].mean(dim=0).cpu())
+        normalize_complex_proto_(proto_re, proto_im)
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--m_per_class", type=int, default=20)
-    p.add_argument("--k_fanin", type=int, default=12)
-    p.add_argument("--rec_k", type=int, default=0)
-    p.add_argument("--rec_init", type=float, default=0.003)
-    p.add_argument("--no_rec_centered", action="store_true")
+    p.add_argument("--m_per_class", type=int, default=12)
+    p.add_argument("--k0_fanin", type=int, default=48)
+    p.add_argument("--k1_fanin", type=int, default=12)
+    p.add_argument("--k2_fanin", type=int, default=12)
     p.add_argument("--epochs", type=int, default=25)
     p.add_argument("--batch", type=int, default=64)
-    p.add_argument("--train_size", type=int, default=10000)
-    p.add_argument("--test_size", type=int, default=2000)
+    p.add_argument("--train_size", type=int, default=4000)
+    p.add_argument("--test_size", type=int, default=1000)
+    p.add_argument("--tail0", type=int, default=60)
+    p.add_argument("--tail1", type=int, default=80)
+    p.add_argument("--tail2", type=int, default=80)
     p.add_argument("--lr", type=float, default=0.002)
     p.add_argument("--lr_decay_after", type=int, default=10)
     p.add_argument("--lr_decay_after_2", type=int, default=18)
     p.add_argument("--lr_decay_factor", type=float, default=0.5)
     p.add_argument("--grad_clip", type=float, default=2.0)
+    p.add_argument("--om0_min", type=float, default=0.05); p.add_argument("--om0_max", type=float, default=1.5)
+    p.add_argument("--om1_min", type=float, default=0.01); p.add_argument("--om1_max", type=float, default=0.40)
+    p.add_argument("--om2_min", type=float, default=0.005); p.add_argument("--om2_max", type=float, default=0.15)
+    p.add_argument("--al0_min", type=float, default=0.85); p.add_argument("--al0_max", type=float, default=0.995)
+    p.add_argument("--al1_min", type=float, default=0.92); p.add_argument("--al1_max", type=float, default=0.998)
+    p.add_argument("--al2_min", type=float, default=0.95); p.add_argument("--al2_max", type=float, default=0.999)
     p.add_argument("--input_init", type=float, default=0.05)
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--beta", type=float, default=8.0)
@@ -225,7 +212,6 @@ def main():
     p.add_argument("--target_rate", type=float, default=0.1)
     p.add_argument("--theta_lr", type=float, default=0.05)
     p.add_argument("--ema_lr", type=float, default=0.05)
-    p.add_argument("--kappa_reset", type=float, default=0.0)
     p.add_argument("--spec_q", type=int, default=4)
     p.add_argument("--geo_tau", type=float, default=0.20)
     p.add_argument("--rate_aux_weight", type=float, default=0.20)
@@ -233,12 +219,10 @@ def main():
     p.add_argument("--proto_lr", type=float, default=0.03)
     p.add_argument("--fisher_beta", type=float, default=0.01)
     p.add_argument("--fisher_eps", type=float, default=1e-3)
-    p.add_argument("--contracted_grad", action="store_true",
-                   help="experimental two-pass path: contract dSpec with readout credit inside the oscillator")
     p.add_argument("--inhibit_same", type=float, default=0.05)
     p.add_argument("--inhibit_global", type=float, default=0.02)
     p.add_argument("--no_sample_binary", action="store_true")
-    p.add_argument("--csv", type=str, default="results/smnist_spectral_geodesic_5stage_spiking.csv")
+    p.add_argument("--csv", type=str, default="results/shd_spectral_geodesic_3stage_spiking.csv")
     p.add_argument("--seed", type=int, default=20260508)
     p.add_argument("--threads", type=int, default=0)
     args = p.parse_args()
@@ -248,64 +232,47 @@ def main():
     torch.manual_seed(args.seed)
     gen = torch.Generator().manual_seed(args.seed)
 
-    classes = 10
-    L = 5
+    classes = N_CLASSES
+    L = 3
     M_per = args.m_per_class
     M = classes * M_per
-    K_fan = args.k_fanin
-    use_rec = args.rec_k > 0
-    rec_centered = use_rec and not args.no_rec_centered
+    class_index = torch.repeat_interleave(torch.arange(classes), M_per)
     sample_binary = not args.no_sample_binary
 
-    stage_om_min = [0.005, 0.001, 0.0005, 0.0002, 0.0001]
-    stage_om_max = [1.2,   0.30,  0.10,   0.04,   0.015]
-    stage_al_min = [0.95,  0.97,  0.98,   0.985,  0.99]
-    stage_al_max = [0.999, 0.9995, 0.9998, 0.9999, 0.99995]
-    stage_tail   = [200,   300,   400,    500,    600]
-
-    print("Loading SMNIST ...", flush=True)
-    xtr, ytr, xte, yte = load_smnist()
+    print("Loading SHD ...", flush=True)
+    xtr, ytr, xte, yte = load_shd()
     if args.train_size:
         xtr, ytr = xtr[: args.train_size], ytr[: args.train_size]
     if args.test_size:
         xte, yte = xte[: args.test_size], yte[: args.test_size]
+    F_in = xtr.shape[2]
     print(f"train {tuple(xtr.shape)}, test {tuple(xte.shape)}", flush=True)
-    print(f"spectral-geodesic strict spiking: L={L}, M/class={M_per}, K={K_fan}, "
-          f"spec_q={args.spec_q}, rec_k={args.rec_k}, rec_centered={rec_centered}", flush=True)
-    print(f"inhibition same/global={args.inhibit_same}/{args.inhibit_global}, "
-          f"fisher_beta={args.fisher_beta}, proto_lr={args.proto_lr}", flush=True)
+    print(f"spectral-geodesic strict spiking SHD: L={L}, M/class={M_per}, "
+          f"K0={args.k0_fanin}, K1={args.k1_fanin}, K2={args.k2_fanin}, spec_q={args.spec_q}",
+          flush=True)
 
-    class_index = torch.repeat_interleave(torch.arange(classes), M_per)
-    cfgs = []
-    for ell in range(L):
-        cfgs.append(OscillatorConfig(
-            n_neurons=M,
-            n_input_channels=1 if ell == 0 else K_fan,
-            omega_min=stage_om_min[ell], omega_max=stage_om_max[ell],
-            alpha_min=stage_al_min[ell], alpha_max=stage_al_max[ell],
-            input_init=args.input_init,
-        ))
+    cfgs = [
+        OscillatorConfig(M, args.k0_fanin, args.om0_min, args.om0_max, args.al0_min, args.al0_max,
+                         input_init=args.input_init),
+        OscillatorConfig(M, args.k1_fanin, args.om1_min, args.om1_max, args.al1_min, args.al1_max,
+                         input_init=args.input_init),
+        OscillatorConfig(M, args.k2_fanin, args.om2_min, args.om2_max, args.al2_min, args.al2_max,
+                         input_init=args.input_init),
+    ]
+    tails = [args.tail0, args.tail1, args.tail2]
     params = [init_params(c, generator=gen) for c in cfgs]
-    freqs = [make_spectral_freqs(stage_om_min[ell], stage_om_max[ell],
-                                 stage_tail[ell], args.spec_q) for ell in range(L)]
-
-    in_idxs = [torch.zeros(M, 1, dtype=torch.long)]
-    for _ in range(1, L):
-        in_idxs.append(make_class_aligned_fanin(classes, M_per, M_per, K_fan, gen))
-
-    if use_rec:
-        rec_idxs = [make_intra_stage_rec_idx(M, args.rec_k, gen) for _ in range(L)]
-        rec_params = [init_recurrent_params(M, args.rec_k, args.rec_init, gen) for _ in range(L)]
-        opts = [Adam(list(params[ell].tensors()) + list(rec_params[ell].tensors()), args.lr)
-                for ell in range(L)]
-        fisher = [[torch.zeros_like(t) for t in list(params[ell].tensors()) + list(rec_params[ell].tensors())]
-                  for ell in range(L)]
-    else:
-        rec_idxs = [None] * L
-        rec_params = [None] * L
-        opts = [Adam(params[ell].tensors(), args.lr) for ell in range(L)]
-        fisher = [[torch.zeros_like(t) for t in params[ell].tensors()] for ell in range(L)]
-
+    opts = [Adam(params[ell].tensors(), args.lr) for ell in range(L)]
+    fisher = [[torch.zeros_like(t) for t in params[ell].tensors()] for ell in range(L)]
+    freqs = [
+        make_spectral_freqs(args.om0_min, args.om0_max, args.tail0, args.spec_q),
+        make_spectral_freqs(args.om1_min, args.om1_max, args.tail1, args.spec_q),
+        make_spectral_freqs(args.om2_min, args.om2_max, args.tail2, args.spec_q),
+    ]
+    in_idxs = [
+        make_stage0_random_fanin(M, F_in, args.k0_fanin, gen),
+        make_class_aligned_fanin(classes, M_per, M_per, args.k1_fanin, gen),
+        make_class_aligned_fanin(classes, M_per, M_per, args.k2_fanin, gen),
+    ]
     thetas = [torch.full((M,), args.theta_init) for _ in range(L)]
     rate_emas = [torch.full((M,), args.target_rate) for _ in range(L)]
     proto_re = []
@@ -315,32 +282,24 @@ def main():
         proto_re.append(pr)
         proto_im.append(pi)
 
-    def fwd(xb, train=False, force_save_all=False, return_inputs=False):
+    def fwd(xb, train=False):
         outs = []
-        x_in = xb.unsqueeze(-1)
-        x_inputs = []
+        x_in = xb
         for ell in range(L):
-            if return_inputs:
-                x_inputs.append(x_in)
-            save_spikes = ell < L - 1 or force_save_all
+            save_spikes = ell < L - 1
             out = forward_with_eligibility_sparse_spiking(
-                x_in, in_idxs[ell], params[ell], cfgs[ell], stage_tail[ell],
+                x_in, in_idxs[ell], params[ell], cfgs[ell], tails[ell],
                 threshold=thetas[ell], beta=args.beta,
                 accumulate_traces=train, save_spike_seq=save_spikes,
                 sample_binary=sample_binary, rng=gen,
-                kappa_reset=args.kappa_reset,
-                rec_idx=rec_idxs[ell], rec_params=rec_params[ell],
                 spectral_freqs=freqs[ell],
                 class_index=class_index,
                 inhibit_same=args.inhibit_same,
                 inhibit_global=args.inhibit_global,
-                rec_centered=rec_centered,
                 accumulate_rate_traces=False)
             outs.append(out)
             if save_spikes:
                 x_in = out["spike_seq"]
-        if return_inputs:
-            return outs, x_inputs
         return outs
 
     def logits_for_stage(out, ell, use_spike):
@@ -357,7 +316,7 @@ def main():
         ens_spike = 0
         rates = [0.0] * L
         n = 0
-        w = [1.0 / L] * L
+        w = [0.2, 0.4, 0.4]
         for s in range(0, x.shape[0], args.batch):
             xb = x[s : s + args.batch]
             yb = y[s : s + args.batch]
@@ -429,34 +388,14 @@ def main():
             idx = order[s : s + args.batch]
             xb = xtr[idx]
             yb = ytr[idx]
-            if args.contracted_grad:
-                outs, x_inputs = fwd(xb, train=False, force_save_all=True, return_inputs=True)
-            else:
-                outs = fwd(xb, train=True)
-                x_inputs = None
+            outs = fwd(xb, train=True)
             for ell, out in enumerate(outs):
                 _, d_re, d_im = readout_credit(
                     out, proto_re[ell], proto_im[ell], yb, class_index,
                     classes, args.geo_tau, args.temperature, args.rate_aux_weight,
                     args.target_rate, args.rate_reg_weight)
-                if args.contracted_grad:
-                    grad_out = contracted_spectral_grad_sparse_spiking(
-                        x_inputs[ell], in_idxs[ell], params[ell], cfgs[ell], stage_tail[ell],
-                        threshold=thetas[ell], spectral_freqs=freqs[ell],
-                        spectral_credit_re=d_re, spectral_credit_im=d_im,
-                        beta=args.beta,
-                        replay_spike_seq=out["spike_seq"],
-                        kappa_reset=args.kappa_reset,
-                        rec_idx=rec_idxs[ell], rec_params=rec_params[ell],
-                        class_index=class_index,
-                        inhibit_same=args.inhibit_same,
-                        inhibit_global=args.inhibit_global,
-                        rec_centered=rec_centered)
-                    grads = grad_out["grads"]
-                    sens = grad_out["sens"]
-                else:
-                    grads = spectral_param_grads(out, d_re, d_im, use_rec)
-                    sens = spectral_sensitivities(out, use_rec)
+                grads = spectral_param_grads(out, d_re, d_im)
+                sens = spectral_sensitivities(out)
                 grads = fisher_precondition(grads, sens, fisher[ell], args.fisher_beta, args.fisher_eps)
                 opts[ell].step(grads, args.grad_clip)
                 update_prototypes(proto_re[ell], proto_im[ell],
