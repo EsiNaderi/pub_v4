@@ -15,6 +15,11 @@ rec_d_i) are learned via their own eligibility traces.
 
 Inter-neuron signal is always binary s(t) in {0, 1}. Per-stage tail
 readout uses the smooth rate rho_i = (1/T_tail) sum_t p_i(t).
+
+Optional spectral readout keeps local demodulators of the spike
+probability and sampled spike train over the tail window:
+    A_i^q = mean_t p_i(t) exp(-i nu_q t).
+The matching eligibility derivatives are accumulated forward in time.
 """
 
 from __future__ import annotations
@@ -68,6 +73,11 @@ def forward_with_eligibility_sparse_spiking(
     top_seq: torch.Tensor | None = None,     # (B, T, M_top) top-down spike train from stage L+1 (pass 1)
     top_idx: torch.Tensor | None = None,     # (P, K_top) top-down fan-in indices
     top_params: RecurrentParams | None = None,
+    spectral_freqs: torch.Tensor | None = None,  # (Q,) demodulation frequencies, radians / step
+    class_index: torch.Tensor | None = None,     # (P,) class/pool id for explicit inhibition
+    inhibit_same: float = 0.0,                   # threshold increment from same-class previous activity
+    inhibit_global: float = 0.0,                 # threshold increment from global previous activity
+    rec_centered: bool = False,                  # subtract each recurrent fan-in mean before weighting
 ) -> dict:
     """Spiking forward pass with eligibility traces for the rate gradient.
 
@@ -110,6 +120,24 @@ def forward_with_eligibility_sparse_spiking(
         assert top_params.d_r.shape == (P, Ktop), \
             f"top_params.d_r shape {top_params.d_r.shape} != ({P},{Ktop})"
 
+    use_spectral = spectral_freqs is not None and int(spectral_freqs.numel()) > 0
+    if use_spectral:
+        freqs = spectral_freqs.to(device=x_seq.device, dtype=x_seq.dtype)
+        Q = int(freqs.numel())
+
+    use_inhibition = (inhibit_same != 0.0 or inhibit_global != 0.0)
+    if use_inhibition and class_index is not None:
+        ci = class_index.to(device=x_seq.device, dtype=torch.long)
+        n_groups = int(ci.max().item()) + 1
+        group_counts = torch.bincount(ci, minlength=n_groups).to(device=x_seq.device, dtype=x_seq.dtype)
+        group_counts = group_counts.clamp_min(1.0)
+        ci_batch = ci.unsqueeze(0).expand(B, P)
+    else:
+        ci = None
+        n_groups = 0
+        group_counts = None
+        ci_batch = None
+
     if accumulate_traces:
         edr_r = torch.zeros(B, P, K, dtype=x_seq.dtype, device=x_seq.device)
         edr_i = torch.zeros_like(edr_r); edi_r = torch.zeros_like(edr_r); edi_i = torch.zeros_like(edr_r)
@@ -134,9 +162,37 @@ def forward_with_eligibility_sparse_spiking(
             etopdi_i = torch.zeros_like(etopdr_r)
             gR_topd_r = torch.zeros_like(etopdr_r)
             gR_topd_i = torch.zeros_like(etopdr_r)
+        if use_spectral:
+            gS_d_r_re = torch.zeros(B, P, K, Q, dtype=x_seq.dtype, device=x_seq.device)
+            gS_d_r_im = torch.zeros_like(gS_d_r_re)
+            gS_d_i_re = torch.zeros_like(gS_d_r_re)
+            gS_d_i_im = torch.zeros_like(gS_d_r_re)
+            gS_b_r_re = torch.zeros(B, P, Q, dtype=x_seq.dtype, device=x_seq.device)
+            gS_b_r_im = torch.zeros_like(gS_b_r_re)
+            gS_b_i_re = torch.zeros_like(gS_b_r_re)
+            gS_b_i_im = torch.zeros_like(gS_b_r_re)
+            gS_om_re = torch.zeros_like(gS_b_r_re)
+            gS_om_im = torch.zeros_like(gS_b_r_re)
+            gS_al_re = torch.zeros_like(gS_b_r_re)
+            gS_al_im = torch.zeros_like(gS_b_r_re)
+            if use_rec:
+                gS_recd_r_re = torch.zeros(B, P, Krec, Q, dtype=x_seq.dtype, device=x_seq.device)
+                gS_recd_r_im = torch.zeros_like(gS_recd_r_re)
+                gS_recd_i_re = torch.zeros_like(gS_recd_r_re)
+                gS_recd_i_im = torch.zeros_like(gS_recd_r_re)
+            if use_top:
+                gS_topd_r_re = torch.zeros(B, P, Ktop, Q, dtype=x_seq.dtype, device=x_seq.device)
+                gS_topd_r_im = torch.zeros_like(gS_topd_r_re)
+                gS_topd_i_re = torch.zeros_like(gS_topd_r_re)
+                gS_topd_i_im = torch.zeros_like(gS_topd_r_re)
 
     rho_sum = torch.zeros(B, P, dtype=x_seq.dtype, device=x_seq.device)
     spike_count = torch.zeros(B, P, dtype=x_seq.dtype, device=x_seq.device)
+    if use_spectral:
+        spec_re_sum = torch.zeros(B, P, Q, dtype=x_seq.dtype, device=x_seq.device)
+        spec_im_sum = torch.zeros_like(spec_re_sum)
+        spike_spec_re_sum = torch.zeros_like(spec_re_sum)
+        spike_spec_im_sum = torch.zeros_like(spec_re_sum)
     if save_spike_seq:
         spike_seq = torch.zeros(B, T, P, dtype=x_seq.dtype, device=x_seq.device)
     else:
@@ -158,6 +214,8 @@ def forward_with_eligibility_sparse_spiking(
         if use_rec:
             # gather recurrent input from this stage's spikes at t-1
             gathered_rec = s_prev[:, rec_idx]            # (B, P, Krec)
+            if rec_centered:
+                gathered_rec = gathered_rec - gathered_rec.mean(dim=2, keepdim=True)
             drive_r = drive_r + (gathered_rec * rec_params.d_r.unsqueeze(0)).sum(dim=2)
             drive_i = drive_i + (gathered_rec * rec_params.d_i.unsqueeze(0)).sum(dim=2)
 
@@ -241,7 +299,16 @@ def forward_with_eligibility_sparse_spiking(
         z_r = z_r_next; z_i = z_i_next
 
         amp2 = z_r.square() + z_i.square()
-        u = beta * (amp2 - theta)
+        inhibition = 0.0
+        if use_inhibition:
+            if inhibit_global != 0.0:
+                inhibition = inhibition + inhibit_global * s_prev.mean(dim=1, keepdim=True)
+            if inhibit_same != 0.0 and ci is not None:
+                group_sum = torch.zeros(B, n_groups, dtype=x_seq.dtype, device=x_seq.device)
+                group_sum.scatter_add_(1, ci_batch, s_prev)
+                group_mean = group_sum / group_counts.unsqueeze(0)
+                inhibition = inhibition + inhibit_same * group_mean[:, ci]
+        u = beta * (amp2 - theta - inhibition)
         p_t = torch.sigmoid(u)                  # (B, P) spike rate at this step
 
         # Sample binary spike for inter-stage signal
@@ -260,22 +327,64 @@ def forward_with_eligibility_sparse_spiking(
         if t >= tail_start:
             rho_sum = rho_sum + p_t              # accumulate smooth rate for loss
             spike_count = spike_count + s_t      # binary count for diagnostics
+            if use_spectral:
+                tail_t = t - tail_start
+                phase = freqs * float(tail_t)
+                demod_re = torch.cos(phase).view(1, 1, Q)
+                demod_im = -torch.sin(phase).view(1, 1, Q)
+                spec_re_sum = spec_re_sum + p_t.unsqueeze(-1) * demod_re
+                spec_im_sum = spec_im_sum + p_t.unsqueeze(-1) * demod_im
+                spike_spec_re_sum = spike_spec_re_sum + s_t.unsqueeze(-1) * demod_re
+                spike_spec_im_sum = spike_spec_im_sum + s_t.unsqueeze(-1) * demod_im
             if accumulate_traces:
                 # Bernoulli-mean derivative: dp/d|z|^2 = sigma'(u) * beta
                 # (where sigma'(u) = p_t * (1 - p_t))
                 sig_prime = p_t * (1.0 - p_t) * beta            # (B, P)
-                gR_d_r = gR_d_r + sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * edr_r + z_i.unsqueeze(-1) * edr_i)
-                gR_d_i = gR_d_i + sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * edi_r + z_i.unsqueeze(-1) * edi_i)
-                gR_b_r = gR_b_r + sig_prime * 2.0 * (z_r * ebr_r + z_i * ebr_i)
-                gR_b_i = gR_b_i + sig_prime * 2.0 * (z_r * ebi_r + z_i * ebi_i)
-                gR_om = gR_om + sig_prime * 2.0 * (z_r * eom_r + z_i * eom_i)
-                gR_al = gR_al + sig_prime * 2.0 * (z_r * eal_r + z_i * eal_i)
+                dp_d_r = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * edr_r + z_i.unsqueeze(-1) * edr_i)
+                dp_d_i = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * edi_r + z_i.unsqueeze(-1) * edi_i)
+                dp_b_r = sig_prime * 2.0 * (z_r * ebr_r + z_i * ebr_i)
+                dp_b_i = sig_prime * 2.0 * (z_r * ebi_r + z_i * ebi_i)
+                dp_om = sig_prime * 2.0 * (z_r * eom_r + z_i * eom_i)
+                dp_al = sig_prime * 2.0 * (z_r * eal_r + z_i * eal_i)
+                gR_d_r = gR_d_r + dp_d_r
+                gR_d_i = gR_d_i + dp_d_i
+                gR_b_r = gR_b_r + dp_b_r
+                gR_b_i = gR_b_i + dp_b_i
+                gR_om = gR_om + dp_om
+                gR_al = gR_al + dp_al
                 if use_rec:
-                    gR_recd_r = gR_recd_r + sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * erecdr_r + z_i.unsqueeze(-1) * erecdr_i)
-                    gR_recd_i = gR_recd_i + sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * erecdi_r + z_i.unsqueeze(-1) * erecdi_i)
+                    dp_recd_r = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * erecdr_r + z_i.unsqueeze(-1) * erecdr_i)
+                    dp_recd_i = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * erecdi_r + z_i.unsqueeze(-1) * erecdi_i)
+                    gR_recd_r = gR_recd_r + dp_recd_r
+                    gR_recd_i = gR_recd_i + dp_recd_i
                 if use_top:
-                    gR_topd_r = gR_topd_r + sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * etopdr_r + z_i.unsqueeze(-1) * etopdr_i)
-                    gR_topd_i = gR_topd_i + sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * etopdi_r + z_i.unsqueeze(-1) * etopdi_i)
+                    dp_topd_r = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * etopdr_r + z_i.unsqueeze(-1) * etopdr_i)
+                    dp_topd_i = sig_prime.unsqueeze(-1) * 2.0 * (z_r.unsqueeze(-1) * etopdi_r + z_i.unsqueeze(-1) * etopdi_i)
+                    gR_topd_r = gR_topd_r + dp_topd_r
+                    gR_topd_i = gR_topd_i + dp_topd_i
+                if use_spectral:
+                    gS_d_r_re = gS_d_r_re + dp_d_r.unsqueeze(-1) * demod_re
+                    gS_d_r_im = gS_d_r_im + dp_d_r.unsqueeze(-1) * demod_im
+                    gS_d_i_re = gS_d_i_re + dp_d_i.unsqueeze(-1) * demod_re
+                    gS_d_i_im = gS_d_i_im + dp_d_i.unsqueeze(-1) * demod_im
+                    gS_b_r_re = gS_b_r_re + dp_b_r.unsqueeze(-1) * demod_re
+                    gS_b_r_im = gS_b_r_im + dp_b_r.unsqueeze(-1) * demod_im
+                    gS_b_i_re = gS_b_i_re + dp_b_i.unsqueeze(-1) * demod_re
+                    gS_b_i_im = gS_b_i_im + dp_b_i.unsqueeze(-1) * demod_im
+                    gS_om_re = gS_om_re + dp_om.unsqueeze(-1) * demod_re
+                    gS_om_im = gS_om_im + dp_om.unsqueeze(-1) * demod_im
+                    gS_al_re = gS_al_re + dp_al.unsqueeze(-1) * demod_re
+                    gS_al_im = gS_al_im + dp_al.unsqueeze(-1) * demod_im
+                    if use_rec:
+                        gS_recd_r_re = gS_recd_r_re + dp_recd_r.unsqueeze(-1) * demod_re
+                        gS_recd_r_im = gS_recd_r_im + dp_recd_r.unsqueeze(-1) * demod_im
+                        gS_recd_i_re = gS_recd_i_re + dp_recd_i.unsqueeze(-1) * demod_re
+                        gS_recd_i_im = gS_recd_i_im + dp_recd_i.unsqueeze(-1) * demod_im
+                    if use_top:
+                        gS_topd_r_re = gS_topd_r_re + dp_topd_r.unsqueeze(-1) * demod_re
+                        gS_topd_r_im = gS_topd_r_im + dp_topd_r.unsqueeze(-1) * demod_im
+                        gS_topd_i_re = gS_topd_i_re + dp_topd_i.unsqueeze(-1) * demod_re
+                        gS_topd_i_im = gS_topd_i_im + dp_topd_i.unsqueeze(-1) * demod_im
 
         # Subtractive reset on spike: z(t) <- (1 - kappa * s(t)) * z(t)
         if kappa_reset > 0:
@@ -294,6 +403,11 @@ def forward_with_eligibility_sparse_spiking(
         "rho": rho,                              # smooth rate (used for loss)
         "spike_rate": spike_rate,                # binary-sampled rate (diagnostic / eval)
     }
+    if use_spectral:
+        out["spec_re"] = spec_re_sum / tail_len
+        out["spec_im"] = spec_im_sum / tail_len
+        out["spike_spec_re"] = spike_spec_re_sum / tail_len
+        out["spike_spec_im"] = spike_spec_im_sum / tail_len
     if save_spike_seq:
         out["spike_seq"] = spike_seq
     if accumulate_traces:
@@ -309,4 +423,27 @@ def forward_with_eligibility_sparse_spiking(
             out["dRho_top_d_r"] = gR_topd_r / tail_len
             out["dRho_top_d_i"] = gR_topd_i / tail_len
         out["dRho_alpha_raw"] = gR_al / tail_len
+        if use_spectral:
+            out["dSpec_d_r_re"] = gS_d_r_re / tail_len
+            out["dSpec_d_r_im"] = gS_d_r_im / tail_len
+            out["dSpec_d_i_re"] = gS_d_i_re / tail_len
+            out["dSpec_d_i_im"] = gS_d_i_im / tail_len
+            out["dSpec_b_r_re"] = gS_b_r_re / tail_len
+            out["dSpec_b_r_im"] = gS_b_r_im / tail_len
+            out["dSpec_b_i_re"] = gS_b_i_re / tail_len
+            out["dSpec_b_i_im"] = gS_b_i_im / tail_len
+            out["dSpec_omega_raw_re"] = gS_om_re / tail_len
+            out["dSpec_omega_raw_im"] = gS_om_im / tail_len
+            out["dSpec_alpha_raw_re"] = gS_al_re / tail_len
+            out["dSpec_alpha_raw_im"] = gS_al_im / tail_len
+            if use_rec:
+                out["dSpec_rec_d_r_re"] = gS_recd_r_re / tail_len
+                out["dSpec_rec_d_r_im"] = gS_recd_r_im / tail_len
+                out["dSpec_rec_d_i_re"] = gS_recd_i_re / tail_len
+                out["dSpec_rec_d_i_im"] = gS_recd_i_im / tail_len
+            if use_top:
+                out["dSpec_top_d_r_re"] = gS_topd_r_re / tail_len
+                out["dSpec_top_d_r_im"] = gS_topd_r_im / tail_len
+                out["dSpec_top_d_i_re"] = gS_topd_i_re / tail_len
+                out["dSpec_top_d_i_im"] = gS_topd_i_im / tail_len
     return out
