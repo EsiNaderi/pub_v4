@@ -1,0 +1,3 @@
+epoch,wall,te_smooth,te_spike,best_te_spike,rate,omega_mean
+0,0.1,0.0469,0.0938,0.0938,0.0121,0.5301
+1,0.9,0.0469,0.0469,0.0938,0.0176,0.5360

@@ -191,3 +191,39 @@ Peak stage-alone binary accuracies:
 This is stronger evidence than SMNIST that the spike-spectrum geometry
 is useful: the same local rule beats both the strict-spiking SHD
 baseline and the previous analog SHD baseline on the local cache.
+
+## Follow-up: SHD attempts toward 90% (2026-05-08)
+
+Goal: test the hypothesis that learned delays or stable recurrence could
+move strict-spiking SHD into the 90% range.
+
+Implemented in `shd/experiments/train_spectral_geodesic_3stage_shd_spiking.py`:
+
+* multi-prototype spectral class atlases (`--prototypes_per_class`,
+  `--proto_pool`);
+* fixed cochlear delay banks (`--delay_taps`);
+* grouped delay fan-in where each selected cochlear channel exposes all
+  delay taps (`--k0_base_fanin`);
+* sparse intra-stage recurrence with local spectral eligibility traces
+  (`--rec*_fanin`), row-local norm projection (`--rec_norm_max`), and
+  optional centered recurrent input (`--rec_centered`).
+
+Results from interrupted ablations:
+
+| Variant | Best binary test | Stop point |
+|---|---:|---:|
+| delay bank + 4 prototypes/class | 0.737 | epoch 8 |
+| all-stage recurrence | 0.664 | epoch 3 |
+| final-stage recurrence only | 0.550 | epoch 2 |
+| grouped learnable delay taps | 0.688 | epoch 3 |
+| 4-prototype atlas, no delay/recurrence | 0.675 | epoch 3 |
+
+Conclusion: these naive forms do not reach 90% and do not beat the
+current 76.70% spectral-geodesic SHD result. The recurrence failure is
+especially informative: rates became stable, but class separation
+lagged. The next mathematically plausible path is not arbitrary learned
+recurrence; it should be a structured contractive operator, such as a
+class-pool graph Laplacian or geodesic transport recurrence with a small
+number of local learned gains. That would preserve the stable-manifold
+idea while removing the unstructured recurrent degrees of freedom that
+currently damage the stage-wise representation.

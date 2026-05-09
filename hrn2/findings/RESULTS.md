@@ -27,6 +27,7 @@ constraints.
 | **DECOLLE 3-stage**, **M=24/class, 35 ep, 2 LR decays at 12 & 24** | | **0.899** | second LR decay added +3pp |
 | **Strict-spiking 5-stage**, **binary spike-rate readout** | spike Bernoulli + local eligibility | **0.8135** | no reset, no recurrence; previous strict-spiking headline |
 | **Strict-spiking spectral-geodesic 5-stage**, **interrupted at ep 13** | spike-spectrum prototypes + local eligibility | **0.8485** | binary-spike ensemble peak at ep 12; +3.5pp over spike-rate readout |
+| **Strict-spiking spectral-geodesic 5-stage MIXTURE K=4**, **stopped at ep 23** | mixture-prototype geodesic + local eligibility | **0.8630** | best at ep 15; +1.45pp over single-prototype baseline |
 | **SHD strict-spiking 3-stage**, **binary spike-rate readout** | spike Bernoulli + local eligibility | **0.606** | 4k/1k SHD cache |
 | **SHD strict-spiking spectral-geodesic 3-stage** | spike-spectrum prototypes + local eligibility | **0.767** | 4k/1k SHD cache; +16.1pp over spike-rate SHD |
 
@@ -144,6 +145,54 @@ python3 -B experiments/train_spectral_geodesic_5stage_smnist_spiking.py \
   --csv results/smnist_spectral_geodesic_5stage_spiking.csv
 ```
 
+## Strict-spiking mixture-prototype geodesic (K=4)
+
+Date: 2026-05-08
+
+Replaces the single per-class prototype $\xi_c \in \mathbb{C}^{P\times q}$
+with **four prototypes per class** $\{\xi_{c,k}\}_{k=1..4}$. The class
+logit is the log-sum-exp over within-class geodesic distances:
+$$\text{logit}_c = \log \sum_{k=1}^{4} \exp\!\big(-d(\text{spec}, \xi_{c,k})^2 / \tau\big)$$
+The Hebbian update is **winner-take-all within class**: each batch sample
+moves only its nearest within-class prototype. Captures intra-class
+variation (e.g.\ class 7 with vs.\ without horizontal stroke) that a
+single mean-prototype necessarily averages out.
+
+Results on the same 10k train / 2k test protocol:
+
+| Epoch | Binary ensemble | Stage 2 | Stage 3 | Stage 4 | Rates 0/1/2/3/4 |
+|---:|---:|---:|---:|---:|---|
+| 3 | 0.8245 | 0.7450 | 0.8220 | 0.8210 | 0.112/0.113/0.072/0.135/0.232 |
+| 7 | 0.8385 | 0.7300 | 0.8310 | 0.8340 | 0.114/0.118/0.090/0.108/0.171 |
+| 12 | 0.8435 | 0.7690 | 0.8210 | 0.8360 | 0.115/0.114/0.116/0.083/0.092 |
+| 13 | 0.8570 | 0.7930 | 0.8340 | 0.8570 | 0.116/0.118/0.121/0.085/0.084 |
+| **15** | **0.8630** | **0.7955** | **0.8405** | **0.8635** | 0.116/0.116/0.129/0.097/0.082 |
+
+Best binary-spike ensemble: **0.8630** at epoch 15. The run was stopped
+at epoch 23 (of 25 planned) after plateauing in the 84-86% range past
+LR decay #2. Stage 4 alone reached 0.8635 — the slowest band benefits
+most from mixture prototypes.
+
+Hyperparameters (only `--k_mix 4` and `--proto_init_jitter 0.05` differ
+from the single-prototype variant):
+
+```bash
+cd /Users/esi/research/pub_v4/hrn2
+python3 -B experiments/train_spectral_geodesic_mixture_5stage_smnist_spiking.py \
+  --m_per_class 20 --k_fanin 12 --rec_k 0 \
+  --k_mix 4 --proto_init_jitter 0.05 \
+  --epochs 25 --batch 64 \
+  --train_size 10000 --test_size 2000 --threads 4 \
+  --lr 0.002 --lr_decay_after 10 --lr_decay_after_2 18 \
+  --csv results/smnist_spectral_geodesic_mixture_K4.csv
+```
+
+Net spiking-SMNIST progression in this thread:
+0.8135 (no spectral readout) → 0.8485 (single-prototype geodesic) →
+**0.8630** (mixture-prototype geodesic, K=4). Total improvement of
+**+5.0pp** while preserving binary-spike inter-neuron communication,
+forward-only eligibility, no surrogate of Heaviside.
+
 ## SHD spectral-geodesic follow-up
 
 Date: 2026-05-08
@@ -176,6 +225,31 @@ python3 -B experiments/train_spectral_geodesic_3stage_shd_spiking.py \
   --threads 4 --spec_q 4 \
   --csv results/shd_spectral_geodesic_3stage_spiking.csv
 ```
+
+### SHD ablations toward 90-95%
+
+Date: 2026-05-08
+
+We then tested several principled extensions aimed at the >90% SHD target.
+All retained strict binary inter-stage spikes and local spectral
+eligibility updates.
+
+| Variant | CSV | Stopped at | Best binary test | Read |
+|---|---|---:|---:|---|
+| Fixed delay bank + 4 spectral prototypes/class | `shd/results/shd_spectral_geodesic_delay_proto_3stage_spiking.csv` | epoch 8 | 0.737 | Added capacity but did not beat 0.767 |
+| All-stage learned recurrent weights, row-norm constrained | `shd/results/shd_spectral_geodesic_rec_3stage_spiking.csv` | epoch 3 | 0.664 | Stabilized rates but slowed separation |
+| Stage-2-only learned recurrence | `shd/results/shd_spectral_geodesic_rec2_3stage_spiking.csv` | epoch 2 | 0.550 | Raw recurrence disrupted the final manifold |
+| Grouped learnable delay taps per cochlear fan-in | `shd/results/shd_spectral_geodesic_grouped_delay_3stage_spiking.csv` | epoch 3 | 0.688 | Faster early learning, worse later trajectory |
+| 4-prototype spectral atlas, no delay/recurrence | `shd/results/shd_spectral_geodesic_proto4_max_3stage_spiking.csv` | epoch 3 | 0.675 | Better epoch 1, worse later trajectory |
+
+Interpretation: simply adding delay capacity, recurrent weights, or
+more spectral prototypes is not enough. The successful baseline appears
+to rely on a delicate stage-wise manifold formation process: stage 1 is
+the strongest separator and stage 2 must refine without injecting
+unstructured temporal inertia. The next recurrence attempt should be
+more constrained than arbitrary sparse recurrent weights, e.g. a
+structured class-pool Laplacian / contractive transport operator with
+learned scalar gains rather than free recurrent synapses.
 
 ## Reproducibility
 

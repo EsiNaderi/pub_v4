@@ -4,8 +4,10 @@ You asked me to push the spiking-network direction as far as possible until morn
 
 ## TL;DR
 
-* **Best spiking SMNIST result tonight: 81.35% test acc** (binary-spike-count readout, 5-stage hierarchy, M=20/class, no recurrence, no reset). Yesterday's analog headline was 89.9%; strict bio plausibility costs ~8.5pp.
-* **Depth, not capacity, is the binding factor.** Going from 3 to 5 stages helps; going from M=20 to M=24 within 5 stages does not (and slightly hurts).
+* **Final spiking SMNIST headline: 86.30% test acc** (binary-spike ensemble, 5-stage hierarchy, M=20/class, mixture-prototype geodesic readout with K=4 prototypes per class). Updated 2026-05-08 evening.
+* **Spiking SMNIST progression**: 0.8135 (rate readout) → 0.8485 (single-prototype geodesic) → **0.8630** (mixture-prototype K=4 geodesic). Cumulative +5.0pp from the same substrate by changing the readout only.
+* **Depth, not capacity, is the binding factor** for the substrate. Going from 3 to 5 stages helps; going from M=20 to M=24 within 5 stages does not.
+* **The big readout-side win was Class-mixture prototypes (k-means in CP^{n-1}, K=4 per class)**: log-sum-exp over within-class geodesic distances + winner-take-all Hebbian update. +1.45pp over single prototype.
 * **Subtractive reset breaks oscillator dynamics.** LIF-style "consume amplitude on fire" is not the right primitive for resonant neurons. Documented derivation of the corrected eligibility-trace recurrence; even with that correction the network does not train.
 * **Naive intra-stage recurrence destabilises deep, high-α stages.** Random-init recurrent weights cause runaway saturation. Negative-mean init didn't help. Lateral inhibition would need explicit always-on subtraction, not a bias term on otherwise random weights.
 * **Top-down predictive-coding feedback** (two-pass, stage L+1 → stage L spikes via learned weights): coded and tested. Underperforms baseline because pass-1 spike trains aren't class-discriminative early. Would need staged training to be useful.
@@ -14,15 +16,17 @@ You asked me to push the spiking-network direction as far as possible until morn
 
 | Architecture | SMNIST 10k test acc (binary-spike readout) |
 |---|---|
-| Analog 3-stage HRN-v2 (continuous tail-energy) | **0.899** (yesterday's headline) |
+| Analog 3-stage HRN-v2 (continuous tail-energy) | **0.899** |
 | Spiking 3-stage baseline (no compensation) | ~0.80 (extrapolated; killed at ep 4 with 61.5%) |
-| **Spiking 5-stage (M=20, no rec, no reset)** | **0.8135** ← headline |
-| Spiking 5-stage (M=24, otherwise identical) | 0.8070 (slightly worse) |
+| Spiking 5-stage (M=20, no rec, no reset, *rate* readout) | 0.8135 |
+| Spiking 5-stage (M=24, otherwise identical) | 0.8070 |
+| Spiking 5-stage spectral-geodesic, *single* prototype per class | 0.8485 |
+| **Spiking 5-stage spectral-geodesic, MIXTURE K=4 prototypes per class** | **0.8630** ← spiking headline |
 | Spiking 3-stage with subtractive reset $\kappa=0.3$ | 0.25 (broke training) |
 | Spiking 3-stage with intra-stage recurrence | 0.20 (deep stages saturate) |
 | Spiking 3-stage with top-down feedback | 0.60 best at ep 6, plateau (killed early) |
 
-**Net of the night**: depth scaling is the clean win. 5-stage spiking SMNIST achieves **81.35% test acc** with binary inter-neuron communication, no BPTT, no surrogate of Heaviside, no inter-stage backward pass. That's 8.5pp below the analog version — about the cost of strict bio plausibility.
+**Net result**: depth scaling delivers the substrate (81.35%); replacing the rate readout with a complex spectral-geodesic readout adds another 3.5pp (to 84.85%); making that readout a per-class K=4 prototype mixture adds a final 1.45pp (to **86.30%**). Bio-plausibility constraints (binary inter-neuron communication, no BPTT, no surrogate of Heaviside, no inter-stage backward pass) preserved throughout. Gap to analog 89.9% is now ~3.6pp.
 
 ## What worked
 
